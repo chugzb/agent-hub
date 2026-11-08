@@ -1,0 +1,55 @@
+#!/bin/zsh
+# 像 SendMessage 一样给反重力员工派活：agy-send 3a "任务"   （接着该员工的长期会话，后台跑，实时日志进 ~/agy-logs）
+# 员工还没有会话号时，第一次派活新建会话并把会话号写回 roles.json
+# 桌面端员工（roles.json 里 kind=desktop）派活是写进它的收件箱；AGY_CLI=1 强制走命令行
+# 可选：AGY_MODEL=gemini-4-argon-medium agy-send 3a "..."  临时换模型
+role=$1; shift; msg="$*"
+CFG=~/.config/agy-team/roles.json
+[[ -z "$role" || -z "$msg" ]] && { echo "用法：agy-send <员工> \"任务\""; exit 1; }
+field() { python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get(sys.argv[2],{}).get(sys.argv[3],''))" "$CFG" "$role" "$1"; }
+[[ -z $(field name) ]] && { echo "没有员工 $role，先加进 $CFG"; exit 1; }
+if [[ -z "$AGY_CLI" && $(field kind) == desktop ]]; then
+  # 桌面端员工：走 agent-hub 的 dispatch_task，直接叫醒它的桌面会话
+  req=$(python3 -c "import json,sys;print(json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'dispatch_task','arguments':{'role':sys.argv[1],'task':sys.argv[2]}}},ensure_ascii=False))" "$role" "$msg")
+  print -r -- "$req" | HUB_SIDE=master node ${0:A:h:h}/server.mjs | python3 -c "import sys,json;d=json.loads(sys.stdin.read());print(d['result']['content'][0]['text'])"
+  exit 0
+fi
+cwd=$(field cwd); conv=$(field conversation); model=${AGY_MODEL:-$(field model)}; log=$(field log)
+[[ -z "$cwd" || -z "$model" || -z "$log" ]] && { echo "$role 缺 cwd / model / log，先在 $CFG 里补上"; exit 1; }
+lock=~/agy-logs/running/$role.pid
+mkdir -p ~/agy-logs/running
+if [[ -f $lock ]] && kill -0 $(cat $lock) 2>/dev/null; then echo "$role 还在忙，先等它做完或 agy-stop $role"; exit 2; fi
+if [[ -n "$conv" ]] && pgrep -f "^agy .*$conv" >/dev/null; then echo "$role 还在忙，先等它做完或 agy-stop $role"; exit 2; fi
+cd "$cwd" || exit 3
+convargs=(); [[ -n "$conv" ]] && convargs=(--conversation "$conv")
+(
+  start=$(wc -l < ~/agy-logs/$log.jsonl 2>/dev/null || echo 0)
+  agy -p "$msg" "${convargs[@]}" --model "$model" --sandbox --settings '{"permissions":{"allow":["write_file(*)","command(*)","mcp(*)"]}}' --print-timeout 0 --output-format stream-json >> ~/agy-logs/$log.jsonl 2>> ~/agy-logs/$log.log
+  echo "$role done $(date)" >> ~/agy-logs/$log.log
+  python3 - "$role" "$log" "$start" "$CFG" <<'PY'
+import json, sys, os, time
+role, log, start, cfg = sys.argv[1], sys.argv[2], int(sys.argv[3] or 0), sys.argv[4]
+res, conv = None, None
+with open(os.path.expanduser(f"~/agy-logs/{log}.jsonl"), encoding="utf-8", errors="ignore") as f:
+    for i, l in enumerate(f):
+        if i < start: continue
+        try: d = json.loads(l)
+        except Exception: continue
+        if d.get("event") == "init": conv = d.get("conversation_id") or conv
+        if d.get("event") == "result": res = d.get("result", {})
+# 新建的会话：把会话号写回员工表，下次接着这个会话
+r = json.load(open(cfg))
+if conv and not r[role].get("conversation"):
+    r[role]["conversation"] = conv
+    open(cfg, "w").write(json.dumps(r, ensure_ascii=False, indent=2) + "\n")
+st = (res or {}).get("status", "?"); txt = ((res or {}).get("response") or "（没有回复内容）").strip().replace("\n", " ")
+with open(os.path.expanduser("~/agy-logs/inbox.jsonl"), "a", encoding="utf-8") as f:
+    d = {"time": time.strftime("%m-%d %H:%M"), "from": role, "type": "done", "status": st, "text": txt[:600]}
+    if os.environ.get("HUB_MASTER"): d["to"] = os.environ["HUB_MASTER"]   # 派活的主控会话名；没有就不写 to（老规矩，算发给「主控」）
+    f.write(json.dumps(d, ensure_ascii=False) + "\n")
+PY
+  rm -f $lock
+) > /dev/null 2>&1 &
+echo $! > $lock
+how="新建会话"; [[ -n "$conv" ]] && how="接着老会话"
+echo "已派给 $role（$model，$how），实时看：agy-watch $role"

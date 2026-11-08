@@ -1,0 +1,13 @@
+#!/bin/zsh
+# 反重力员工给主控发消息（像 SendMessage）：agy-reply <员工> <类型> "内容"
+# 类型：help（求助，需要主控/用户拍板）、progress（阶段进度）、done（做完了）
+role=$1; kind=$2; shift 2; text="$*"
+[[ -z "$role" || -z "$kind" || -z "$text" ]] && { echo "用法：agy-reply <员工> help|progress|done \"内容\""; exit 1; }
+python3 - "$role" "$kind" "$text" <<'PY'
+import json, sys, time, os
+role, kind, text = sys.argv[1:4]
+p = os.path.expanduser("~/agy-logs/inbox.jsonl")
+with open(p, "a", encoding="utf-8") as f:
+    f.write(json.dumps({"time": time.strftime("%m-%d %H:%M"), "from": role, "type": kind, "text": text}, ensure_ascii=False) + "\n")
+print("已发给主控")
+PY

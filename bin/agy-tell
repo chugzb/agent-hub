@@ -1,0 +1,6 @@
+#!/bin/zsh
+# 主控给员工发消息：记进收件箱，桌面端员工同时直接推进它正在跑的对话。用法：agy-tell <员工> "内容"
+role=$1; shift; text="$*"
+[[ -z "$role" || -z "$text" ]] && { echo "用法：agy-tell <员工> \"内容\""; exit 1; }
+req=$(python3 -c "import json,sys;print(json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'send_message','arguments':{'me':'主控','to':sys.argv[1],'type':'reply','text':sys.argv[2]}}},ensure_ascii=False))" "$role" "$text")
+print -r -- "$req" | HUB_SIDE=master node ${0:A:h:h}/server.mjs | python3 -c "import sys,json;print(json.loads(sys.stdin.read())['result']['content'][0]['text'])"

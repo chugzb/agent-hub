@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+# 收件箱新行 → 主控能看的一行；主控自己发出去的不提醒
+import sys, json
+for l in sys.stdin:
+    try:
+        d = json.loads(l)
+        if d.get("from") == "主控": continue
+        to = d.get("to", "主控")
+        arrow = "" if to == "主控" else f" → {to}"
+        print(f"[{d.get('from')}{arrow} {d.get('type')}] {d.get('status','')} {d.get('text','')[:400]}", flush=True)
+    except Exception:
+        print(l.strip()[:300], flush=True)

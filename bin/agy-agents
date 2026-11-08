@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+# 像 ListAgents 一样列出反重力员工：谁在忙、用什么模型、跑了多久、最近在干什么
+import json, os, subprocess, time, sys, re, unicodedata
+def w(t): return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in t)
+def pad(t, n): return t + " " * max(1, n - w(t))
+CFG = os.path.expanduser("~/.config/agy-team/roles.json")
+roles = json.load(open(CFG))
+VERB = {"read_file":"读","view_file":"读","write_file":"写","write_to_file":"写","edit_file":"改","replace_file_content":"改","multi_replace_file_content":"改",
+        "run_command":"跑","grep_search":"搜","find_by_name":"找","list_dir":"看","capture_browser_screenshot":"截图","generate_image":"生图","search_web":"查网"}
+def model_zh(m):
+    lv = {"high":"高","medium":"中","low":"低"}; base, _, t = m.rpartition("-")
+    names = {"claude-opus-5-5":"Claude Opus 5.5","claude-sonnet-5-5":"Claude Sonnet 5.5","gemini-4-argon":"Gemini 4 Argon","gemini-3.8-flash":"Gemini 3.8 Flash"}
+    return f"{names.get(base, m)}（{lv[t]}）" if t in lv else m
+def procs():
+    out = subprocess.run(["pgrep", "-f", "^agy "], capture_output=True, text=True).stdout.split()
+    res = []
+    for pid in out:
+        cmd = subprocess.run(["ps", "-o", "command=", "-p", pid], capture_output=True, text=True).stdout.strip()
+        et = subprocess.run(["ps", "-o", "etime=", "-p", pid], capture_output=True, text=True).stdout.strip()
+        res.append((pid, cmd, et))
+    return res
+def last_action(log):
+    p = os.path.expanduser(f"~/agy-logs/{log}.jsonl")
+    if not os.path.exists(p): return ("", None)
+    age = time.time() - os.path.getmtime(p)
+    try:
+        with open(p, "rb") as f:
+            f.seek(0, 2); size = f.tell(); f.seek(max(0, size - 60000)); lines = f.read().decode("utf-8", "ignore").splitlines()
+    except Exception: return ("", age)
+    for l in reversed(lines):
+        try: d = json.loads(l)
+        except Exception: continue
+        if d.get("event") == "result": return ("交了：" + (d.get("result", {}).get("response") or "")[:60].replace("\n", " "), age)
+        s = d.get("step_update", {})
+        if s.get("step_type") == "tool":
+            prm = s.get("tool_info", {}).get("parameters", {})
+            v = next((str(prm[k]) for k in ("Path","AbsolutePath","TargetFile","CommandLine","Query","SearchPath") if k in prm), "")
+            v = v.splitlines()[0] if v else ""
+            for _r in roles.values():
+                if _r.get("cwd"): v = v.replace(_r["cwd"].rstrip("/") + "/", "")
+            v = v.replace(os.path.expanduser("~"), "~")
+            return (f"{VERB.get(s.get('tool_name'), s.get('tool_name'))} {v[:60]}", age)
+    return ("", age)
+ps = procs()
+print(pad("员工", 10) + pad("模型", 24) + pad("状态", 22) + "最近动作")
+_desk = None
+def desk_summaries():
+    global _desk
+    if _desk is None:
+        try:
+            out = subprocess.run(["node", os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "desk.mjs"), "GetAllCascadeTrajectories", "{}"], capture_output=True, text=True, timeout=10, env={**os.environ, "FULL": "1"}).stdout
+            _desk = json.loads(out).get("trajectorySummaries", {})
+        except Exception:
+            _desk = {}
+    return _desk
+def desktop_row(k, r):
+    t = desk_summaries().get(r.get("desktop_id", ""), None)
+    if not r.get("desktop_id"): state, act = "没登记桌面会话", ""
+    elif t is None: state, act = "桌面端没开或找不到会话", ""
+    else:
+        st = t["status"].replace("CASCADE_RUN_STATUS_", "")
+        pres = {}
+        try: pres = json.load(open(os.path.expanduser(f"~/agy-logs/presence/{k}.json")))
+        except Exception: pass
+        waiting = pres.get("state") == "waiting" and time.time() * 1000 - pres.get("beat", 0) < 60000
+        if waiting: state, act = "等活中", ""
+        elif st == "RUNNING": state, act = "干活中", ("在做：" + pres.get("task", "").replace("\n", " ")[:40]) if pres.get("state") == "working" else ""
+        elif st == "IDLE": state, act = "停着（有消息自动叫醒）", ""
+        else: state, act = st, ""
+    print(pad(r["name"], 10) + pad("桌面端", 24) + pad(state, 22) + act)
+for k, r in roles.items():
+    if r.get("kind") == "desktop":
+        desktop_row(k, r); continue
+    # 11-07：Codex 员工（adapters/codex-run.mjs）和 tmux 终端员工
+    if r.get("kind") in ("codex", "devin"):
+        pres = {}
+        try: pres = json.load(open(os.path.expanduser(f"~/agy-logs/presence/{k}.json")))
+        except Exception: pass
+        lk = os.path.expanduser(f"~/agy-logs/presence/{k}.lock")
+        busy = False
+        if os.path.exists(lk):
+            try: os.kill(int(open(lk).read().strip()), 0); busy = True
+            except Exception: pass
+        act = ("在做：" + str(pres.get("task", "")).replace("\n", " ")[:40]) if busy else ""
+        print(pad(r.get("name", k), 10) + pad("Devin · " + r.get("model", "") if r.get("kind") == "devin" else "Codex CLI", 24) + pad("干活中" if busy else "空闲（有消息自动开跑）", 22) + act)
+        continue
+    if r.get("kind") == "tmux":
+        print(pad(r.get("name", k), 10) + pad("终端 agent（tmux）", 24) + pad("—", 22) + f"窗口 {r.get('tmux', '?')}")
+        continue
+    if "model" not in r or "log" not in r:
+        print(pad(r.get("name", k), 10) + pad(r.get("kind", "?"), 24) + pad("—", 22) + "名册缺字段，跳过"); continue
+    lock = os.path.expanduser(f"~/agy-logs/running/{k}.pid")
+    lpid = open(lock).read().strip() if os.path.exists(lock) else ""
+    kids = subprocess.run(["pgrep", "-P", lpid], capture_output=True, text=True).stdout.split() if lpid else []
+    mine = [p for p in ps if (r.get("conversation") and r["conversation"] in p[1]) or p[0] in kids]
+    act, age = last_action(r["log"])
+    if mine:
+        mm = re.search(r"--model (\S+)", mine[0][1]); m = mm.group(1) if mm else r["model"]
+        st = f"忙 · 已跑 {mine[0][2]}"
+        if age and age > 480: st = f"卡住？{int(age//60)} 分钟没动"
+    else:
+        m = r["model"]; st = "空闲"
+    when = f"（{int(age//60)} 分钟前）" if age is not None and age >= 60 else ""
+    print(pad(r["name"], 10) + pad(model_zh(m), 24) + pad(st, 22) + f"{act} {when}")
+# Claude Code 会话（读 Claude 自己的会话名册 ~/.claude/sessions/*.json，跟 ListAgents 同一个来源，只读）
+import glob as _g
+claude = []
+for f in _g.glob(os.path.expanduser("~/.claude/sessions/*.json")):
+    try: d = json.load(open(f))
+    except Exception: continue
+    pid = str(d.get("pid", ""))
+    alive = subprocess.run(["ps", "-p", pid], capture_output=True).returncode == 0
+    if not alive: continue
+    claude.append(d)
+if claude:
+    print()
+    print(pad("Claude 会话", 18) + pad("入口", 16) + pad("状态", 22) + "工作目录")
+    for d in sorted(claude, key=lambda x: x.get("name", "")):
+        st = {"busy": "忙", "idle": "空闲"}.get(d.get("status"), d.get("status", "?"))
+        age = (time.time() * 1000 - d.get("statusUpdatedAt", 0)) / 60000
+        st2 = f"{st} · {int(age)} 分钟前" if age >= 1 else st
+        cwd = os.path.basename(d.get("cwd", "").rstrip("/"))
+        print(pad(d.get("name", "?"), 18) + pad(d.get("entrypoint", "?").replace("claude-", ""), 16) + pad(st2, 22) + cwd)
+print("\n派活：agy-send <员工> \"任务\"   停：agy-stop <员工>   实时看：agy-watch <员工> / agy-dash")

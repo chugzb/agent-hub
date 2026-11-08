@@ -1,0 +1,12 @@
+#!/bin/zsh
+# 停掉某个反重力员工正在跑的活：agy-stop 3a （会话保留，下次 agy-send 接着做）
+role=$1; [[ -z "$role" ]] && { echo "用法：agy-stop <员工>"; exit 1; }
+conv=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get(sys.argv[2],{}).get('conversation',''))" ~/.config/agy-team/roles.json "$role")
+lock=~/agy-logs/running/$role.pid
+pids=()
+[[ -n "$conv" ]] && pids+=($(pgrep -f "^agy .*$conv"))
+[[ -f $lock ]] && pids+=($(pgrep -P $(cat $lock) -f '^agy '))
+[[ ${#pids} -eq 0 ]] && { echo "$role 没在跑"; exit 0; }
+kill $pids 2>/dev/null; sleep 2
+for p in $pids; do kill -0 $p 2>/dev/null && kill -9 $p; done
+echo "已停 $role"

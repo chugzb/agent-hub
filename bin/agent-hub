@@ -1,0 +1,15 @@
+#!/bin/sh
+# agent-hub 命令入口：找到代码目录和 node，转给 cli.mjs。用法：agent-hub install | update | uninstall | doctor | open
+SELF="$0"
+while [ -L "$SELF" ]; do
+  T=$(readlink "$SELF")
+  case "$T" in /*) SELF="$T" ;; *) SELF="$(dirname "$SELF")/$T" ;; esac
+done
+DIR=$(cd "$(dirname "$SELF")/.." && pwd)
+NODE=""
+CFG="${HOME}/.config/agent-hub/config.json"
+if [ -f "$CFG" ]; then
+  NODE=$(sed -n 's/.*"node"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CFG" | head -n 1)
+fi
+[ -n "$NODE" ] && [ -x "$NODE" ] || NODE=$(command -v node) || { echo "需要先装 Node 18 以上（https://nodejs.org）" >&2; exit 1; }
+exec "$NODE" "$DIR/cli.mjs" "$@"

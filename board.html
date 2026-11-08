@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>海景办公室</title>
+<style>
+:root{--ink:#1d2430;--muted:#6b7380;--work:#16a34a;--stuck:#dc2626;--off:#9aa3ad;--line:rgba(20,40,60,.12);--floor:#ebb980;--top:54px;
+  font-family:Inter,"PingFang SC","Hiragino Sans GB",system-ui,sans-serif}
+*{box-sizing:border-box}
+html,body{overflow-x:hidden}
+body{margin:0;background:var(--floor);color:var(--ink);font-size:14px}
+.top{position:sticky;top:0;z-index:900;display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;padding:10px 18px;background:rgba(255,255,255,.9);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+h1{margin:0;font-size:18px;font-weight:700;margin-right:4px}
+.pill{background:#fff;border:1px solid var(--line);border-radius:999px;padding:3px 12px;font-size:13px;color:var(--muted);white-space:nowrap}
+.pill b{color:var(--ink);margin-left:4px}.pill.w b{color:var(--work)}.pill.s b{color:var(--stuck)}.pill.o b{color:var(--off)}.pill.q b{color:var(--off)}
+.pill.o,.pill.q{cursor:help}
+.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:3px 12px;font-size:13px;cursor:pointer;color:var(--ink);white-space:nowrap}
+.chip[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.upd{margin-left:auto;color:var(--muted);font-size:12px}
+.layout{display:grid;grid-template-columns:auto minmax(0,1fr)}
+.layout>.side{order:-1}
+
+/* 舞台：场景按一屏算好宽高后水平居中，两边露出的地方用跟画面边缘相近的墙色 / 地板色补齐 */
+.stage{min-width:0;background:linear-gradient(to bottom,#efe2cf 0,#efe2cf calc(var(--sh,600px) * .27),#e2c39c calc(var(--sh,600px) * .3),var(--floor) calc(var(--sh,600px) * .36),#e7b179 var(--sh,600px),var(--floor) 100%)}
+.scene{position:relative;width:var(--sw,100%);height:var(--sh,auto);margin:0 auto;background:var(--floor) url(/assets/office-seaview-32.png) center top/100% auto no-repeat;overflow:hidden;--u:10px}
+
+/* 两块区域：浅色圆角框，标题像图例一样压在框的上沿 */
+.zone{position:absolute;z-index:2;border-radius:calc(var(--u) * 1.4);background:rgba(255,255,255,.3);border:max(1.5px,calc(var(--u) * .18)) dashed rgba(255,255,255,.88)}
+.zt{position:absolute;left:calc(var(--u) * 1.2);top:0;transform:translateY(-50%);background:rgba(255,255,255,.94);border-radius:999px;padding:.15em .9em;font-size:max(11px,calc(var(--u) * .85));font-weight:700;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.zt .bad{color:var(--stuck);margin-left:.6em}
+.gl{position:absolute;z-index:5;transform:translateX(-50%);font-size:max(10px,calc(var(--u) * .72));line-height:1.35;font-weight:700;color:#5a4630;background:rgba(255,248,236,.92);border-radius:999px;padding:0 .8em;white-space:nowrap;pointer-events:none}
+.seat{position:absolute;z-index:3;transform:translate(-50%,-50%);border:max(1px,calc(var(--u) * .14)) dashed rgba(110,80,50,.35);border-radius:50%;background:rgba(255,255,255,.12)}
+.legend{position:absolute;z-index:5;display:flex;align-items:center;gap:.5em;font-size:max(10px,calc(var(--u) * .66));color:#5a4630;white-space:nowrap}
+.legend .tool{border-radius:999px}
+
+/* 人：left/top 是脚下的点，换区域时 1.2 秒滑过去 */
+.p{position:absolute;width:0;height:0;transition:left 1.2s ease,top 1.2s ease;outline:none}
+.instant .p,.instant .fig,.instant .tagw,.instant .bubble,.p.fresh,.p.fresh *{transition:none!important}
+.p.enter{animation:fadein .6s ease}
+@keyframes fadein{from{opacity:0}}
+.fig{position:absolute;left:0;bottom:0;z-index:10;transform:translateX(-50%);transition:width 1.2s ease}
+.fig img{display:block;width:100%;aspect-ratio:1;object-fit:contain;filter:drop-shadow(0 calc(var(--u) * .3) calc(var(--u) * .4) rgba(60,40,20,.18))}
+.fig::before{content:"";position:absolute;left:50%;bottom:0;width:72%;height:20%;transform:translate(-50%,20%);border-radius:50%;opacity:0;transition:opacity .6s}
+.working .fig::before{opacity:1;background:radial-gradient(closest-side,rgba(22,163,74,.38),rgba(22,163,74,.12) 70%,transparent);box-shadow:0 0 0 max(1px,calc(var(--u) * .16)) rgba(22,163,74,.55)}
+.stuck .fig::before{opacity:1;background:radial-gradient(closest-side,rgba(220,38,38,.4),rgba(220,38,38,.14) 70%,transparent);box-shadow:0 0 0 max(2px,calc(var(--u) * .22)) rgba(220,38,38,.8)}
+.off .fig img{filter:grayscale(1);opacity:.45}
+.quota .fig img{filter:grayscale(.6)}
+.alert{display:none;position:absolute;right:10%;top:8%;z-index:3;width:max(16px,calc(var(--u) * 1.5));height:max(16px,calc(var(--u) * 1.5));border-radius:50%;background:var(--stuck);color:#fff;font-weight:800;font-size:max(10px,calc(var(--u) * .95));place-items:center;box-shadow:0 1px 4px rgba(0,0,0,.25);animation:pulse 1.2s ease-in-out infinite}
+.stuck .alert{display:grid}
+@keyframes pulse{50%{transform:scale(1.2)}}
+
+/* 名牌（照 docs/proto/name-tag.html）：白底名字 + 右边工具色签；干活区名牌下面一行小字写模型 */
+.tagw{position:absolute;left:0;z-index:400;width:max-content;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;transition:top 1.2s ease}
+.tag{display:flex;align-items:stretch;border-radius:999px;box-shadow:0 1px 3px rgba(0,0,0,.14);overflow:hidden;white-space:nowrap;line-height:1.4;font-size:max(10px,calc(var(--u) * .7));max-width:max(110px,calc(var(--u) * 20))}
+.work .tag{font-size:max(10px,calc(var(--u) * .85))}
+.nm{background:#fff;padding:0 .6em;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.nm i{display:inline-block;width:.62em;height:.62em;border-radius:50%;background:var(--off);margin-right:.35em;vertical-align:.02em}
+.working .nm i{background:var(--work)}.stuck .nm i{background:var(--stuck)}
+.nm .sn{display:none}
+.off .nm::after{content:"不在";color:var(--off);font-weight:500;margin-left:.3em}
+.tool{color:#fff;padding:0 .6em;font-weight:600;flex:none}
+.t-cc{background:#c96442}.t-agy{background:#3b6fd8}.t-dv{background:#13795b}.t-cx{background:#111827}.t-tm{background:#6b7280}
+.off .tag{opacity:.6}
+/* 对话健康小标：刚换过对话（绿）、对话快满（琥珀）、额度用完（灰，带恢复时间） */
+.hb{display:none;padding:0 .55em;font-weight:700;flex:none}
+.hb.renewed,.hb.big,.hb.quota{display:block}.tag:has(.hb.renewed),.tag:has(.hb.big){max-width:max(170px,calc(var(--u) * 26))}.hb.renewed{background:#dcfce7;color:#15803d}.hb.big{background:#f59e0b;color:#fff}.hb.quota{background:#eef1f4;color:#5b6472}
+.tag:has(.hb.quota){max-width:max(250px,calc(var(--u) * 36))}
+/* 状态小标：等会话（琥珀）、状态未知（灰）；这两种都不算歇着 */
+.sb{display:none;padding:0 .55em;font-weight:700;flex:none}
+.waiting .sb{display:block;background:#fef3c7;color:#b45309}
+.unknown .sb{display:block;background:#eef1f4;color:#5b6472}
+.waiting .tag,.unknown .tag{max-width:max(150px,calc(var(--u) * 23))}
+.waiting .fig::before{opacity:1;background:radial-gradient(closest-side,rgba(245,158,11,.32),rgba(245,158,11,.1) 70%,transparent);box-shadow:0 0 0 max(1px,calc(var(--u) * .16)) rgba(245,158,11,.55)}
+.mdl{display:none;margin-top:2px;font-size:max(10px,calc(var(--u) * .68));line-height:1.35;color:#3d4652;background:rgba(255,255,255,.82);border-radius:6px;padding:0 .5em;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.work .mdl:not(:empty){display:block}
+/* 待命区放不下两排时（或干活区某张名牌比桌宽）：色签只留颜色，名字不被截；悬停看工具名，右下角有图例 */
+.compact .wait .tool,.p.tight .tool{font-size:0;padding:0;width:max(6px,calc(var(--u) * .55))}
+.narrow .nm .fn{display:none}.narrow .nm .sn{display:inline}
+
+/* 气泡：写手上的活，一行，省略号，悬停展开 */
+.bubble{position:absolute;left:0;z-index:600;transform:translateX(-50%);background:#fff;border-radius:10px;padding:.15em .7em;font-size:max(10px,calc(var(--u) * .78));line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 2px 8px rgba(0,0,0,.12);transition:bottom 1.2s ease}
+.bubble:empty,.wait .bubble{display:none}
+.stuck .bubble{background:#fde8e6;color:var(--stuck);font-weight:600;box-shadow:0 0 0 1px rgba(220,38,38,.35),0 2px 8px rgba(0,0,0,.12)}
+.p:hover,.p:focus-within{z-index:700}
+.p:hover .bubble,.p:focus-within .bubble{white-space:normal;overflow:visible;max-width:none!important;width:max(200px,calc(var(--u) * 18));overflow-wrap:anywhere}
+.p.el:hover .bubble,.p.el:focus-within .bubble{transform:translateX(-18%)}.p.er:hover .bubble,.p.er:focus-within .bubble{transform:translateX(-82%)}
+
+/* 消息栏：右侧一张圆角卡片，高度跟场景一样（由 layout() 写 --sideH），卡片里自己滚；整页不再被消息撑长 */
+.side{width:360px;flex:none;position:sticky;top:var(--top);height:var(--sideH,240px);padding:0 10px;display:flex;justify-content:flex-start}
+.card{flex:1;min-width:0;display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 4px 18px rgba(60,40,20,.1);overflow:hidden}
+.side.closed{width:34px;padding:0 4px}
+.side.closed .card{display:none}
+.side-tab{display:none;align-items:center;justify-content:center;border:1px solid var(--line);background:#fff;border-radius:12px;color:var(--muted);cursor:pointer;font-size:12px;font-weight:600;letter-spacing:.15em;writing-mode:vertical-rl;padding:12px 0;box-shadow:0 2px 10px rgba(60,40,20,.08)}
+.side.closed .side-tab{display:flex}
+/* 卡片头固定在卡片顶部（不在滚动区里）；筛选、只看某人、新消息提示都在这里 */
+.sh{flex:none;z-index:2;background:#fff;padding:10px 12px 8px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.newb{display:none;border:0;background:#dbeafe;color:#1d4ed8;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700;cursor:pointer}
+.newb.on{display:inline-block}
+.fold{margin-left:auto;border:1px solid var(--line);background:#fff;border-radius:999px;width:22px;height:22px;line-height:1;cursor:pointer;color:var(--muted);padding:0;font-size:14px}
+.fold:hover{color:var(--ink)}
+#msgs{flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.mf{flex:none;border-top:1px solid var(--line);padding:6px 10px;text-align:center;background:#fff}
+.mf[hidden]{display:none}
+.mf button{width:100%}
+.sh h2{margin:0 6px 0 0;font-size:12px;letter-spacing:.06em;color:var(--muted)}
+.sf{border:1px solid var(--line);background:#fff;border-radius:999px;padding:1px 10px;font-size:12px;cursor:pointer;color:var(--ink)}
+.sf[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.who{display:none;align-items:center;gap:4px;background:#eef4ff;color:#1e40af;border-radius:999px;padding:1px 4px 1px 10px;font-size:12px;font-weight:600}
+.who.on{display:inline-flex}
+.who button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0 4px}
+.msg{padding:8px 14px;border-top:1px solid var(--line);cursor:pointer}
+.msg:first-child{border-top:0}
+.msg.pin{border-left:3px solid var(--stuck);background:#fff6f5;padding-left:11px}
+.mh{display:flex;gap:4px;align-items:center;font-size:12px;color:var(--muted);min-width:0}.mh b{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:7.5em}
+.av{flex:none;width:18px;height:18px;border-radius:50%;background:#eef1f4 center 18%/190% no-repeat;display:inline-grid;place-items:center;font-size:10px;font-weight:700;color:#5b6472;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+.t{margin-left:auto;white-space:nowrap;padding-left:6px}
+.mt{margin-top:3px;font-size:13px;line-height:1.5;overflow-wrap:anywhere;white-space:pre-line}
+.msg:not(.open) .mt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal}
+.mt .path{color:#1e40af;border-bottom:1px dotted rgba(30,64,175,.4)}
+.more{font-size:11px;color:var(--muted);margin-top:2px}
+.ty{flex:none;font-size:11px;border-radius:5px;padding:0 5px;background:#eef1f4;color:#5b6472;margin-left:2px}
+.ty.task{background:#dbeafe;color:#1d4ed8}.ty.done{background:#dcfce7;color:#15803d}.ty.help{background:#fde8e6;color:var(--stuck)}.ty.progress{background:#fef3c7;color:#b45309}
+.p{cursor:pointer}
+@media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}.layout>.side{order:0}.side{width:auto;position:static;height:auto;padding:10px 12px 16px}.side .card{height:70vh}.side.closed{width:auto;padding:0 12px}.side.closed .card{display:none}.side.closed .side-tab,.side-tab{writing-mode:horizontal-tb;flex:1;padding:8px 0;letter-spacing:0}.top{padding:8px 12px}.upd{margin-left:0;width:100%}}
+</style>
+</head>
+<body>
+<div class="top" id="top">
+  <h1>海景办公室</h1>
+  <span class="pill w">在干活<b id="nW">0</b></span><span class="pill" id="pI">歇着<b id="nI">0</b></span><span class="pill q" id="pQ">没额度<b id="nQ">0</b></span><span class="pill s">要处理<b id="nS">0</b></span><span class="pill o" id="pO">不在<b id="nO">0</b></span>
+  <button class="chip" id="fTeam" aria-pressed="false">只看员工</button>
+  <button class="chip" id="fMsg" aria-pressed="true">消息往来</button>
+  <span class="upd" id="upd">连接中…</span>
+</div>
+<div class="layout">
+  <div class="stage" id="stage"><div class="scene" id="scene"></div></div>
+  <aside class="side" id="side"><div class="card"><div class="sh"><h2>消息往来</h2><button class="sf" data-f="" aria-pressed="true">全部</button><button class="sf" data-f="task" aria-pressed="false">派活</button><button class="sf" data-f="done" aria-pressed="false">完成</button><button class="sf" data-f="help" aria-pressed="false">求助</button><span class="who" id="who"><span id="whoName"></span><button id="whoX" title="看全部人的消息">×</button></span><button class="newb" id="newb" title="回到最新">0 条新消息</button><button class="fold" id="fold" title="收起消息栏">‹</button></div><div id="msgs"></div><div class="mf" id="mf" hidden><button class="sf" id="loadMore">加载更早的消息</button></div></div><button class="side-tab" id="sideTab" title="展开消息栏">消息往来</button></aside>
+</div>
+<script>
+/* 方案：docs/prd/2026-11-08-海景办公室方案.md「怎么一眼分清」；任务单：docs/prd/2026-11-08-看板第二轮任务单.md
+   画面两块：前面干活区（只放在干活和卡住的人，2 排 × 6 张桌，人多加排；谁开工坐空桌，开工期间不换桌），
+   后面窗边待命区（其余所有人按组站成一群，组内按名字排；不在的也站在自己组里，灰掉）。
+   位置全按场景实际像素算：名牌先放进页面量出真实宽度，再按宽度排间距，所以名牌互不压。 */
+const $ = (id) => document.getElementById(id);
+const AV = new Set(["claude", "deepseek", "gemini", "devin", "codex", "kiro", "cursor"]);
+const ASPECT = 2048 / 1360;                         // 背景图比例
+const GROUPS = ["主控", "反重力", "DeepSeek", "Devin · Codex", "其他会话"];
+const TOOLS = { "Claude Code": "cc", "反重力": "agy", "Devin": "dv", "Codex": "cx", "终端": "tm" };
+const WORK_SCALE = 1.3;                             // 在干活的人比待命区的人大这么多
+
+const shortName = (n) => n.replace(/-master$/, "");
+const byName = (a, b) => a.name.localeCompare(b.name, "zh-CN", { numeric: true });
+
+/* ---------- 名牌数据：工具、模型、头像、分组（接口没给 tool / model 时按 kind 兜底） ---------- */
+function toolOf(a) {
+  if (TOOLS[a.tool]) return a.tool;
+  const k = String(a.kind || "");
+  return /^反重力/.test(k) ? "反重力" : /^Devin/.test(k) ? "Devin" : /^Codex/.test(k) ? "Codex" : /^终端/.test(k) ? "终端" : "Claude Code";
+}
+function rawModel(a) {
+  if (a.model) return a.model;
+  const k = String(a.kind || ""), dv = /^Devin · (.+)$/.exec(k);
+  return dv ? dv[1] : /DeepSeek/i.test(k) ? "DeepSeek" : /Gemini/i.test(k) ? "Gemini" : /Claude/i.test(k) ? "Claude" : "";
+}
+/* gpt-6-1-sol-high → GPT-6.1 Sol；claude-opus-5-5-high → Claude Opus 5.5；deepseek-v4-pro → DeepSeek V4 Pro；已经是人写的名字（带大写或空格）原样用 */
+const BRAND = { gpt: "GPT", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek", opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
+function prettyModel(m) {
+  m = String(m || "").trim();
+  if (!m || /[A-Z\s]/.test(m)) return m;
+  const parts = [];
+  for (const x of m.toLowerCase().replace(/-(xhigh|high|medium|low|max|thinking)$/, "").split(/[-_]/).filter(Boolean)) {
+    if (/^\d+$/.test(x) && /^\d+(\.\d+)*$/.test(parts[parts.length - 1] || "")) parts[parts.length - 1] += `.${x}`;
+    else parts.push(x);
+  }
+  const w = parts.map((x) => BRAND[x] || (/^v\d/.test(x) ? x.toUpperCase() : /^\d/.test(x) ? x : x[0].toUpperCase() + x.slice(1)));
+  if (w[0] === "GPT" && /^\d/.test(w[1] || "")) w.splice(0, 2, `GPT-${w[1]}`);
+  return w.join(" ");
+}
+/* 头像看模型；认不出模型再看工具（Devin 工具 → devin 头，Codex → codex 头），再不行用接口给的 avatar */
+function avatarOf(a, tool, model) {
+  const m = model.toLowerCase();
+  if (/claude|opus|sonnet|haiku/.test(m)) return "claude";
+  if (/gpt|codex|\bo\d/.test(m)) return "codex";
+  if (/gemini/.test(m)) return "gemini";
+  if (/deepseek/.test(m)) return "deepseek";
+  if (tool === "Devin") return "devin";
+  if (tool === "Codex") return "codex";
+  return AV.has(a.avatar) ? a.avatar : "claude";
+}
+/* 分组：员工表 roles.json 的 group 优先；没有就按类型判断，不认任何具体员工名 */
+function groupOf(a, tool, av) {
+  if (a.group) return a.group;
+  const k = String(a.kind || "");
+  if (tool === "Claude Code" && /-master$/.test(a.name)) return "主控";
+  if (av === "deepseek" || /DeepSeek/i.test(k)) return "DeepSeek";
+  if (/未登记|手动|后台/.test(k)) return "其他会话";
+  if (tool === "反重力") return "反重力";
+  if (tool === "Devin" || tool === "Codex") return "Devin · Codex";
+  return "其他会话";
+}
+
+/* ---------- 气泡写活本身 ---------- */
+/* 「X 派的：…」去掉派活人（放进悬停提示）；「Bash：说明」只留说明；只有工具名的换成一句话；「SendMessage → X」写成「给 X 发消息」 */
+const TOOL_SAY = { Bash: "在跑命令", Read: "在看文件", Grep: "在搜代码", Glob: "在找文件", Edit: "在改文件", MultiEdit: "在改文件", Write: "在写文件", NotebookEdit: "在改文件",
+  WebFetch: "在看网页", WebSearch: "在搜网页", Task: "在派子任务", Agent: "在派子任务", TodoWrite: "在列待办", SendMessage: "在发消息" };
+function jobOf(doing) {
+  let text = String(doing || "").trim(), from = "";
+  const assigned = /^(\S+)\s*派的[：:]\s*([\s\S]*)$/.exec(text);
+  if (assigned) { from = assigned[1]; text = assigned[2].replace(/^【[^】]*】\s*/, "").trim(); }
+  const send = /^SendMessage\s*→\s*(.+)$/.exec(text);
+  if (send) return { text: `给 ${send[1].trim()} 发消息`, from };
+  const tool = /^([A-Za-z][\w.-]*)[：:]\s*(.+)$/.exec(text);
+  if (tool) return { text: tool[2].trim(), from };
+  if (/^[A-Za-z][\w.-]*$/.test(text)) return { text: TOOL_SAY[text] || (/^mcp__/.test(text) ? "在调工具" : "在跑命令"), from };
+  return { text, from };
+}
+function ago(ms) {
+  if (!ms) return ""; const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 60) return "刚刚"; if (s < 3600) return `${Math.floor(s / 60)} 分钟`; if (s < 86400) return `${Math.floor(s / 3600)} 小时`; return `${Math.floor(s / 86400)} 天`;
+}
+const RENEWED_SHOW_MS = 30 * 60_000;
+/* 对话健康：overflow（对话撑爆）当卡住；renewed 30 分钟内标「刚换对话」；big 标「对话快满」；
+   quota（额度用完、备用也没额度）标「额度用完 · HH:MM 恢复」，人放待命区、图灰度 60% */
+const healthBadge = (h, st) => (h?.state === "quota" && st === "quota" ? ["quota", `额度用完${h.recover ? ` · ${h.recover} 恢复` : ""}`]
+  : h?.state === "renewed" && Date.now() - (h.at || 0) < RENEWED_SHOW_MS ? ["renewed", "刚换对话"] : h?.state === "big" ? ["big", "对话快满"] : null);
+const stateOf = (a) => (a.health?.state === "overflow" ? "stuck" : ["working", "stuck", "error", "offline", "waiting", "unknown", "quota"].includes(a.state) ? a.state : "idle");
+const setText = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+const setStyle = (el, k, v) => { if (el.style[k] !== v) el.style[k] = v; };
+
+/* ---------- 场景里只建一次的东西 ---------- */
+const scene = $("scene"), stage = $("stage");
+function mk(cls, parent = scene, html = "") { const el = document.createElement("div"); el.className = cls; el.innerHTML = html; parent.append(el); return el; }
+const zWait = mk("zone", scene, '<span class="zt"></span>'), zWork = mk("zone", scene, '<span class="zt"></span>');
+const deco = mk("deco");                            // 小组名牌和空桌，每次排位重画
+const legend = mk("legend", scene, `<span>色签 = 工具</span>${Object.entries(TOOLS).map(([t, c]) => `<span class="tool t-${c}">${t}</span>`).join("")}`);
+// 量高度用的样品（不显示）
+const probe = mk("probe", scene, '<span class="gl">组</span><div class="p working work"><div class="bubble">气泡</div><div class="tagw"><div class="tag"><span class="nm">名</span></div><div class="mdl">Model</div></div></div><div class="p idle wait"><div class="tagw"><div class="tag"><span class="nm">名</span></div></div></div>');
+probe.style.cssText = "position:absolute;visibility:hidden;left:0;top:0";
+
+/* ---------- 人：按名字留着同一个 DOM，每次只改位置、类名和文字 ---------- */
+const people = new Map();
+function personEl(name) {
+  let el = people.get(name);
+  if (el) return el;
+  el = document.createElement("div");
+  el.className = "p enter fresh"; el.tabIndex = 0;
+  el.innerHTML = '<div class="bubble"></div><div class="fig"><div class="alert">!</div><img alt=""></div><div class="tagw"><div class="tag"><span class="nm"><i></i><span class="fn"></span><span class="sn"></span></span><span class="tool"></span><span class="hb"></span><span class="sb"></span></div><div class="mdl"></div></div>';
+  el.querySelector("img").alt = name;
+  el.querySelector(".fn").textContent = name; el.querySelector(".sn").textContent = shortName(name);
+  el.addEventListener("animationend", () => el.classList.remove("enter"), { once: true });
+  scene.append(el); people.set(name, el);
+  return el;
+}
+
+/* 干活区的桌子：名字 → 桌号。开工时拿最小的空桌，开工期间不换，歇下来才还 */
+const desks = new Map();
+function assignDesks(workers) {
+  const names = new Set(workers.map((a) => a.name));
+  for (const n of [...desks.keys()]) if (!names.has(n)) desks.delete(n);
+  const used = new Set(desks.values());
+  for (const a of workers.filter((x) => !desks.has(x.name)).sort((x, y) => (x.since || 0) - (y.since || 0) || byName(x, y))) {
+    let i = 0; while (used.has(i)) i++;
+    used.add(i); desks.set(a.name, i);
+  }
+}
+
+let onlyTeam = false, last = null, list = [];
+function render(d) {
+  last = d;
+  let ag = d.agents.map((a) => ({ ...a, st: stateOf(a) }));
+  if (onlyTeam) ag = ag.filter((a) => !/VS Code/.test(a.kind) || /-master$/.test(a.name));
+  list = ag.map((a) => {
+    const tool = toolOf(a), raw = rawModel(a), av = avatarOf(a, tool, raw);
+    return { ...a, tool, model: prettyModel(raw) || (tool === "Claude Code" ? "Claude" : ""), av, group: groupOf(a, tool, av), zone: a.st === "working" || a.st === "stuck" || a.st === "error" ? "work" : "wait" };
+  });
+  assignDesks(list.filter((a) => a.zone === "work"));
+
+  const seen = new Set();
+  for (const a of list) {
+    seen.add(a.name);
+    const el = personEl(a.name);
+    const keep = ["enter", "fresh", "el", "er", "tight"].filter((c) => el.classList.contains(c)).map((c) => ` ${c}`).join("");
+    const cls = `p ${a.st === "error" ? "stuck error" : a.st} ${a.zone}${a.st === "offline" ? " off" : ""}${keep}`;
+    if (el.className !== cls) el.className = cls;
+    const src = `/assets/cut/${a.av}-${a.zone === "work" ? "working" : "idle"}.webp`;
+    const img = el.querySelector("img"); if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+    const tl = el.querySelector(".tool"); setText(tl, a.tool);
+    const tc = `tool t-${TOOLS[a.tool]}`; if (tl.className !== tc) tl.className = tc;
+    setText(el.querySelector(".mdl"), a.zone === "work" ? a.model : "");
+    // 出错气泡写最后一条报错原文（后端已截 160 字），别走 jobOf 把「Error:」当成工具名吃掉
+    const job = a.st === "error" ? { text: String(a.doing || "").trim(), from: "" } : jobOf(a.doing);
+    const overflow = a.health?.state === "overflow";
+    setText(el.querySelector(".bubble"), overflow ? "对话撑爆，正在换新对话" : a.st === "error" ? (job.text || "对话报错停下了") : a.st === "stuck" ? `卡住了：${job.text || "15 分钟没动静"}` : a.st === "working" ? (job.text || "在想…") : a.st === "quota" ? (a.health?.recover ? `额度用完，${a.health.recover} 恢复` : "额度用完，等额度恢复") : "");
+    const badge = healthBadge(a.health, a.st), hb = el.querySelector(".hb");
+    setText(hb, badge ? badge[1] : ""); const hc = `hb${badge ? ` ${badge[0]}` : ""}`; if (hb.className !== hc) hb.className = hc;
+    const sb = el.querySelector(".sb"); setText(sb, a.st === "waiting" ? "等会话" : a.st === "unknown" ? "状态未知" : "");
+    const status = overflow ? "对话撑爆，正在换新对话" : a.st === "offline" ? "不在" : a.st === "working" ? `在干活，已干 ${ago(a.since)}` : a.st === "stuck" ? "卡住了" : a.st === "error" ? "出错了，等处理" : a.st === "quota" ? (a.health?.recover ? `额度用完，${a.health.recover} 恢复` : "额度用完，等额度恢复") : a.st === "waiting" ? "在等会话" : a.st === "unknown" ? "状态未知" : "歇着";
+    const tip = [`${a.name} · ${a.tool}${a.model ? ` · ${a.model}` : ""}`, a.kind, status, a.st !== "working" && a.lastMove ? `${ago(a.lastMove)}前动过` : "",
+      a.health?.state === "big" && a.health.mb ? `对话已有约 ${a.health.mb}MB` : "", job.from && `派活人：${job.from}`, job.text, a.said, a.where].filter(Boolean).join("\n");
+    if (el.title !== tip) el.title = tip;
+  }
+  for (const [name, el] of people) if (!seen.has(name)) { el.remove(); people.delete(name); }
+
+  const count = (st) => ag.filter((a) => a.st === st);
+  $("nW").textContent = count("working").length;
+  $("nI").textContent = count("idle").length;   // 等会话、状态未知不算歇着
+  $("nS").textContent = count("stuck").length + count("error").length;   // 要处理 = 卡住 + 出错，不算额度用完
+  const quota = count("quota");
+  $("nQ").textContent = quota.length;
+  $("pQ").title = quota.length ? `没额度：${quota.map((a) => `${a.name}${a.health?.recover ? `（${a.health.recover} 恢复）` : ""}`).join("、")}` : "没有人没额度";
+  const off = count("offline");
+  $("nO").textContent = off.length;
+  $("pO").title = off.length ? `不在：${off.map((a) => a.name).join("、")}` : "没有人不在";
+  const wait = count("waiting"), unk = count("unknown");
+  $("pI").title = [wait.length ? `等会话：${wait.map((a) => a.name).join("、")}` : "", unk.length ? `状态未知：${unk.map((a) => a.name).join("、")}` : ""].filter(Boolean).join("；") || "没有人等会话或状态未知";
+  $("upd").textContent = `更新于 ${new Date(d.at).toLocaleTimeString("zh-CN", { hour12: false })}`;
+  feedIncoming(d.messages, d.more);
+  layout(false);
+}
+
+/* ---------- 排位：全部按像素算 ---------- */
+/* 待命区：按组顺序从左往右排，组宽 = 组里每人「名牌实际宽度」之和，一排放不下换排；组内按名字排 */
+function packWaiting(groups, innerW, figW, gapM, gapG, wOf) {
+  const rows = []; let row = { chunks: [], w: 0 };
+  const push = () => { if (row.chunks.length) rows.push(row); row = { chunks: [], w: 0 }; };
+  for (const g of groups) {
+    let chunk = { label: g.name, labelW: g.labelW, members: [], w: 0 };
+    const close = () => { if (chunk.members.length) { chunk.w = Math.max(chunk.w, chunk.label ? chunk.labelW + gapM : 0); row.chunks.push(chunk); row.w += (row.chunks.length > 1 ? gapG : 0) + chunk.w; } };
+    const need = Math.max(g.members.reduce((s, a) => s + Math.max(figW, wOf(a)) + gapM, 0), g.labelW + gapM);
+    if (row.w && row.w + gapG + need > innerW) push();
+    for (const a of g.members) {
+      const sw = Math.max(figW, wOf(a)) + gapM;
+      if (chunk.members.length && (row.w ? row.w + gapG : 0) + chunk.w + sw > innerW) { close(); push(); chunk = { label: "", labelW: 0, members: [], w: 0 }; }
+      chunk.members.push({ a, sw }); chunk.w += sw;
+    }
+    close();
+  }
+  push();
+  return rows;
+}
+
+let lastW = 0;
+function layout(instant) {
+  const topH = $("top").offsetHeight;
+  document.documentElement.style.setProperty("--top", `${topH}px`);
+  const availW = stage.clientWidth;
+  const W = Math.floor(Math.min(availW, Math.max(320, (innerHeight - topH - 10) * 1.5)));
+  const H0 = W / ASPECT, u = W / 100, narrow = W < 640;
+  scene.style.setProperty("--u", `${u}px`);
+  scene.classList.toggle("narrow", narrow);
+  if (instant || Math.abs(W - lastW) > 1) { scene.classList.add("instant"); requestAnimationFrame(() => requestAnimationFrame(() => scene.classList.remove("instant"))); }
+  lastW = W;
+
+  const work = list.filter((a) => a.zone === "work"), wait = list.filter((a) => a.zone === "wait");
+  // 量样品：小组名牌、名牌、模型小字、气泡、区标题、图例
+  const pr = (sel) => probe.querySelector(sel).offsetHeight;
+  const lh = pr(".gl"), tagHk = pr(".work .tag"), mH = pr(".work .mdl") + 2, bH = pr(".work .bubble"), tagHw = pr(".wait .tag");
+  zWait.querySelector(".zt").textContent = "待命区"; const tH = zWait.querySelector(".zt").offsetHeight;
+  const legH = legend.offsetHeight;
+
+  const padX = Math.max(8, 1.2 * u), padY = Math.max(6, .8 * u), x0 = W * .02, innerX0 = x0 + padX, innerW = W * .96 - 2 * padX;
+  const gapM = Math.max(4, .5 * u), gapG = Math.max(10, 1.6 * u);
+  const fMin = narrow ? 30 : 34, fTarget = Math.max(fMin, 7 * u), rgW = Math.max(5, .7 * u);
+
+  // 分组
+  const gmap = new Map();
+  for (const a of wait.sort(byName)) { if (!gmap.has(a.group)) gmap.set(a.group, []); gmap.get(a.group).push(a); }
+  const order = [...GROUPS.filter((g) => gmap.has(g)), ...[...gmap.keys()].filter((g) => !GROUPS.includes(g)).sort()];
+  deco.innerHTML = order.map((g) => `<span class="gl">${esc(g)}</span>`).join("");
+  const glEls = [...deco.querySelectorAll(".gl")];
+  const groups = order.map((g, i) => ({ name: g, el: glEls[i], labelW: glEls[i].offsetWidth, members: gmap.get(g) }));
+
+  // 名牌全写工具名排不进两排（或者窄屏），色签就只留颜色
+  const tagW = new Map();
+  const measure = () => { for (const a of wait) tagW.set(a.name, people.get(a.name).querySelector(".tag").offsetWidth); };
+  scene.classList.remove("compact"); measure();
+  let rows = packWaiting(groups, innerW, fTarget * .8, gapM, gapG, (a) => tagW.get(a.name));
+  if (narrow || rows.length > 2) {
+    scene.classList.add("compact"); measure();
+    rows = packWaiting(groups, innerW, fTarget * .8, gapM, gapG, (a) => tagW.get(a.name));
+  }
+  const compact = scene.classList.contains("compact");
+  legend.style.display = compact ? "" : "none";
+
+  // 干活区：桌子列数（宽屏 6 列，窄屏按宽度少几列），排数至少 2（窄屏 1），坐不下加排
+  const cols = narrow ? Math.max(2, Math.min(6, Math.floor(innerW / 118))) : 6;
+  const maxDesk = Math.max(-1, ...work.map((a) => desks.get(a.name)));
+  const rowsK = Math.max(narrow ? 1 : 2, Math.ceil((maxDesk + 1) / cols));
+  const rowsW = Math.max(1, rows.length);
+
+  // 竖直方向：人物高度 f 是唯一的未知数，总高 = A + B·f，按一屏能放下的最大 f 算（不超过 7% 场景宽）
+  const legSpace = legH + 2 * Math.max(4, .6 * u);
+  const boxFix = tH / 2 + 2 * padY, gapB = tH / 2 + Math.max(6, u);
+  const A = boxFix * 2 + gapB + rowsW * (lh + 3 + tagHw + rgW) + rowsK * (bH + 4 + tagHk + mH + 6);
+  const B = rowsW * (.94 - .12) + rowsK * WORK_SCALE * (.9 - .12);
+  const top0 = H0 * .2;
+  const bottom0 = Math.min(H0 - legSpace, H0 * .95);
+  let f = Math.min(fTarget, (bottom0 - top0 - A) / B);
+  let H = H0;
+  if (f < fMin) { f = fMin; H = Math.max(H0, top0 + A + B * f + legSpace); }
+  const bottom = H > H0 + 1 ? H - legSpace : bottom0;
+  const fw = f * WORK_SCALE;
+  scene.style.setProperty("--sw", `${W}px`); scene.style.setProperty("--sh", `${Math.round(H)}px`);
+  stage.style.setProperty("--sh", `${Math.round(H)}px`);
+  // 消息卡片高度跟场景一样（场景比一屏高时按一屏算，别把整页再撑长）
+  $("side").style.setProperty("--sideH", `${Math.round(Math.max(200, Math.min(H, innerHeight - topH)))}px`);
+  scene.style.backgroundSize = H > H0 + 1 ? "100% auto" : "100% 100%";
+
+  const rowHw = lh + 3 + f * .82 + tagHw + rgW, rowHk = bH + 4 + fw * .78 + tagHk + mH + 6;
+  const waitH = boxFix + rowsW * rowHw, workH = boxFix + rowsK * rowHk;
+  // 待命区：底边尽量落在 46%，框顶不低于 28%；放不下就往上长到 20%
+  const waitBot = Math.max(top0 + waitH, Math.min(H * .46, bottom - gapB - workH));
+  const waitTop = Math.max(top0, Math.min(H * .28, waitBot - waitH));
+  // 干活区：从 52% 开始，底边到 90%；挤的时候往上贴
+  let workTop = Math.max(waitBot + gapB, Math.min(H * .52, bottom - workH));
+  const workBot = Math.min(bottom, Math.max(workTop + workH, H * .9));
+  const boxStyle = (el, t, b) => { el.style.left = `${x0}px`; el.style.width = `${W * .96}px`; el.style.top = `${t}px`; el.style.height = `${b - t}px`; };
+  boxStyle(zWait, waitTop, waitBot); boxStyle(zWork, workTop, workBot);
+
+  const nWork = work.filter((a) => a.st === "working").length, nStuck = work.filter((a) => a.st === "stuck").length, nErr = work.filter((a) => a.st === "error").length;
+  zWork.querySelector(".zt").innerHTML = `干活区 · ${nWork} 人在干活${nStuck ? `<span class="bad">${nStuck} 人卡住</span>` : ""}${nErr ? `<span class="bad">${nErr} 人出错</span>` : ""}`;
+  zWait.querySelector(".zt").textContent = `待命区 · ${wait.length} 人`;
+  legend.style.right = `${x0 + padX}px`; legend.style.left = "auto";
+  legend.style.top = `${Math.min(H - legH - 3, workBot + (H - workBot - legH) / 2)}px`;
+
+  const place = (a, x, feet, fsz, slotW, bubbleMax) => {
+    const el = people.get(a.name);
+    setStyle(el, "left", `${x}px`); setStyle(el, "top", `${feet}px`);
+    setStyle(el.querySelector(".fig"), "width", `${fsz}px`);
+    setStyle(el.querySelector(".tagw"), "top", `${-.12 * fsz}px`);
+    const tag = el.querySelector(".tag");
+    if (slotW) { el.classList.remove("tight"); setStyle(tag, "maxWidth", "none"); if (tag.offsetWidth > slotW) el.classList.add("tight"); }
+    else el.classList.remove("tight");
+    setStyle(tag, "maxWidth", slotW ? `${slotW}px` : "");
+    const bub = el.querySelector(".bubble");
+    setStyle(bub, "bottom", `${fsz * .9 + 4}px`); setStyle(bub, "maxWidth", bubbleMax ? `${bubbleMax}px` : "");
+    el.classList.toggle("el", x < W * .15); el.classList.toggle("er", x > W * .85);
+  };
+
+  // 待命区每排：居中，组和组之间均匀拉开一点
+  const waitContentTop = waitBot - padY - rowsW * rowHw;
+  rows.forEach((row, r) => {
+    const extra = innerW - row.w, n = row.chunks.length;
+    const gap = gapG + (n > 1 ? Math.min(extra / (n - 1), 4 * u) : 0);
+    const rowW = row.chunks.reduce((s, c) => s + c.w, 0) + gap * (n - 1);
+    let x = innerX0 + (innerW - rowW) / 2;
+    const labelTop = waitContentTop + r * rowHw + rgW, feet = labelTop + lh + 3 + f * .94;
+    for (const c of row.chunks) {
+      const content = c.members.reduce((s, m) => s + m.sw, 0);
+      let mx = x + (c.w - content) / 2;
+      for (const m of c.members) { place(m.a, mx + m.sw / 2, feet, f, 0, 0); mx += m.sw; }
+      if (c.label) { const g = groups.find((gg) => gg.name === c.label); g.el.style.left = `${x + c.w / 2}px`; g.el.style.top = `${labelTop}px`; }
+      x += c.w + gap;
+    }
+  });
+
+  // 干活区：桌子按列均分，后排先坐；空桌画一个淡淡的虚线圈
+  const colW = innerW / cols;
+  const workContentTop = workTop + tH / 2 + padY;
+  const rowGap = (workBot - workTop - workH) / rowsK;
+  const deskPos = (i) => {
+    const r = Math.floor(i / cols), c = i % cols;
+    return { x: innerX0 + (c + .5) * colW, feet: workContentTop + r * (rowHk + rowGap) + rowGap / 2 + bH + 4 + fw * .9 };
+  };
+  const taken = new Set();
+  for (const a of work) { const i = desks.get(a.name); taken.add(i); const p = deskPos(i); place(a, p.x, p.feet, fw, colW - 6, colW - 8); }
+  let seats = "";
+  for (let i = 0; i < rowsK * cols; i++) {
+    if (taken.has(i)) continue;
+    const p = deskPos(i);
+    seats += `<div class="seat" style="left:${p.x}px;top:${p.feet - fw * .06}px;width:${fw * .62}px;height:${fw * .2}px"></div>`;
+  }
+  deco.insertAdjacentHTML("beforeend", seats);
+  if (!compact) legend.style.display = scene.querySelector(".p.tight") ? "" : "none";
+  // 新来的人第一次就站在自己位置上，不从左上角滑过来
+  const fresh = [...scene.querySelectorAll(".p.fresh")];
+  if (fresh.length) requestAnimationFrame(() => requestAnimationFrame(() => fresh.forEach((el) => el.classList.remove("fresh"))));
+}
+
+/* ---------- 消息往来 ---------- */
+/* 11-08 起消息里的 from/to 是真实派活人（B1 已做）。老消息里写「主控」的照原样显示「主控」，不做任何映射 */
+const TYPE_ZH = { task: "派活", done: "完成", help: "求助", progress: "进度", reply: "回复", note: "备注" };
+let msgType = "", msgWho = "";
+const opened = new Set();
+/* 消息时间：接口给 at（完整时间戳）就用；没有才拿「11-08 03:10」按今年补，算出来在将来（跨年）就退一年 */
+function msgTime(t) {
+  const m = /^(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})/.exec(String(t || ""));
+  if (!m) return 0;
+  const now = new Date(); let d = new Date(now.getFullYear(), m[1] - 1, +m[2], +m[3], +m[4]);
+  if (d - now > 86400_000) d = new Date(now.getFullYear() - 1, m[1] - 1, +m[2], +m[3], +m[4]);
+  return d.getTime();
+}
+const fullTimeText = (ms) => (ms ? new Date(ms).toLocaleString("zh-CN", { hour12: false }) : "");
+function relTime(ms) {
+  if (!ms) return "";
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  return s < 60 ? "刚刚" : s < 3600 ? `${Math.floor(s / 60)} 分钟前` : s < 86400 ? `${Math.floor(s / 3600)} 小时前` : `${Math.floor(s / 86400)} 天前`;
+}
+/* 小圆头像：场景里有这个人就用同一张头像，没有就写名字第一个字；老消息里的「主控」用 Claude 头像（不映射成谁） */
+function avHtml(n) {
+  const s = String(n ?? "");
+  const a = list.find((x) => x.name === s);
+  if (a) return `<span class="av" style="background-image:url(/assets/cut/${a.av}-idle.webp)"></span>`;
+  if (s === "主控") return `<span class="av" style="background-image:url(/assets/cut/claude-idle.webp)"></span>`;
+  return `<span class="av">${esc([...s][0] || "?")}</span>`;
+}
+/* 正文：长路径只显示最后一段文件名（去掉开头的日期），悬停看全路径 */
+const PATH_RE = /(?:~|\/)[^\s，。、；：！？）)」』"'`<>]*\/[^\s，。、；：！？）)」』"'`<>]+/g;
+function segs(text) {
+  const out = []; let i = 0;
+  for (const m of text.matchAll(PATH_RE)) {
+    const p = m[0].replace(/[.,]+$/, ""), base = p.replace(/\/+$/, "").split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-/, "") || p;
+    out.push({ t: text.slice(i, m.index) }, { t: base, path: p });
+    i = m.index + p.length;
+  }
+  out.push({ t: text.slice(i) });
+  return out.filter((x) => x.t);
+}
+const segHtml = (ss) => ss.map((x) => (x.path ? `<span class="path" title="${esc(x.path)}">${esc(x.t)}</span>` : esc(x.t))).join("");
+/* 收起时只显示第一句（60 字以内）或前 60 字；按缩短路径之后的字数算，路径不会被从中间截断 */
+function brief(text) {
+  const all = segs(String(text || "").replace(/\s+/g, " ").trim()), full = all.map((x) => x.t).join("");
+  const first = /^(.+?[。！？!?])(\s|$)/.exec(full);
+  const limit = first && first[1].length <= 60 ? first[1].length : 60;
+  if (full.length <= limit) return { html: segHtml(all), cut: false };
+  const out = []; let n = 0;
+  for (const x of all) {
+    if (n >= limit) break;
+    if (x.path || n + x.t.length <= limit) { out.push(x); n += x.t.length; }
+    else { out.push({ t: x.t.slice(0, limit - n) }); n = limit; }
+  }
+  return { html: segHtml(out) + (limit === 60 ? "…" : ""), cut: true };
+}
+/* 消息列表：feed 新的在前。往下翻着的时候新消息先攒在 pending，卡片头提示「N 条新消息」，点一下才插进去、回到顶部 */
+let feed = [], feedMore = false, feedNewest = 0, feedLoaded = false, msgSig = "";
+const pending = new Map();
+const decorate = (m) => ({ ...m, key: `${m.line ?? m.time}|${m.from}|${m.to}|${String(m.text).slice(0, 40)}`, at: m.at || msgTime(m.time) });
+const msgsBox = () => $("msgs");
+const atTop = () => msgsBox().scrollTop <= 4;
+function paintNew() { const b = $("newb"); b.textContent = `${pending.size} 条新消息`; b.classList.toggle("on", pending.size > 0); }
+function paintMore() { $("mf").hidden = !feedMore; }
+function mergeFeed(add) {
+  const seen = new Set(feed.map((m) => m.key));
+  const fresh = add.filter((m) => !seen.has(m.key));
+  if (!fresh.length) return;
+  feed = fresh.concat(feed).sort((a, b) => b.line - a.line);
+  feedNewest = Math.max(feedNewest, feed[0]?.line ?? 0);
+}
+/* 每次快照来一批：在顶部就并进去；往下翻着就不动版面，记到 pending */
+function feedIncoming(msgs, more) {
+  if (typeof more === "boolean" && more !== feedMore) { feedMore = more; paintMore(); }
+  const rows = (msgs || []).map(decorate);
+  if (!feedLoaded) { feedLoaded = true; feed = rows; feedNewest = rows[0]?.line ?? 0; paintMore(); renderMsgs(); return; }
+  const fresh = rows.filter((m) => m.line > feedNewest);
+  if (!fresh.length) return;
+  if (atTop()) { mergeFeed(fresh); pending.clear(); paintNew(); renderMsgs(); }
+  else { for (const m of fresh) pending.set(m.key, m); paintNew(); }
+}
+function flushNew() {
+  if (!pending.size) return;
+  mergeFeed([...pending.values()].sort((a, b) => b.line - a.line));
+  pending.clear(); paintNew(); renderMsgs();
+}
+/* 「加载更早的消息」：每次 40 条，按收件箱行号往前取 */
+async function loadMore() {
+  if (!feed.length || !feedMore) return;
+  const btn = $("loadMore"); if (btn.disabled) return;
+  btn.disabled = true; btn.textContent = "加载中…";
+  try {
+    const r = await fetch(`/api/messages?limit=40&before=${feed[feed.length - 1].line}`, { cache: "no-store" });
+    const j = await r.json();
+    const seen = new Set(feed.map((m) => m.key));
+    feed = feed.concat((j.messages || []).map(decorate).filter((m) => !seen.has(m.key)));
+    feedMore = !!j.more;
+  } catch {} finally { btn.disabled = false; btn.textContent = "加载更早的消息"; paintMore(); renderMsgs(); }
+}
+function renderMsgs() {
+  if (!feedLoaded) return;
+  const all = feed.slice();
+  // 求助有没有人回：它之后有人给求助的人发过消息就算回了（同一分钟的按列表先后，列表新的在前）
+  all.forEach((m, i) => { m.pin = m.type === "help" && !all.some((x, j) => x !== m && x.to === m.from && (x.at > m.at || (x.at === m.at && j < i))); });
+  let shown = all.filter((m) => (!msgType || m.type === msgType) && (!msgWho || m.from === msgWho || m.to === msgWho));
+  shown = [...shown.filter((m) => m.pin), ...shown.filter((m) => !m.pin)];
+  const sig = JSON.stringify([shown.map((m) => m.key + m.pin + opened.has(m.key)), shown.map((m) => relTime(m.at)), list.map((a) => a.name + a.av).join()]);
+  if (sig === msgSig) return;
+  msgSig = sig;
+  msgsBox().innerHTML = shown.map((m) => {
+    const b = brief(m.text), open = opened.has(m.key);
+    return `<div class="msg${m.pin ? " pin" : ""}${open ? " open" : ""}" data-k="${esc(m.key)}"><div class="mh">${avHtml(m.from)}<b>${esc(m.from)}</b>→${avHtml(m.to)}<b>${esc(m.to)}</b><span class="ty ${esc(m.type)}">${esc(TYPE_ZH[m.type] || m.type)}</span><span class="t" title="${esc(fullTimeText(m.at) || m.time)}">${esc(relTime(m.at) || m.time)}</span></div>`
+      + `<div class="mt">${open ? segHtml(segs(String(m.text || ""))) : b.html}</div>${b.cut ? `<div class="more">${open ? "收起" : "展开全文"}</div>` : ""}</div>`;
+  }).join("") || `<div class="msg">${msgWho || msgType ? "没有符合的消息" : "还没有消息"}</div>`;
+}
+msgsBox().addEventListener("click", (e) => {
+  if (e.target.closest(".path") && getSelection().toString()) return;
+  const el = e.target.closest(".msg[data-k]"); if (!el) return;
+  const k = el.dataset.k; opened.has(k) ? opened.delete(k) : opened.add(k); renderMsgs();
+});
+/* 自己翻回顶部：把攒着的新消息插进去，提示消失 */
+msgsBox().addEventListener("scroll", () => { if (atTop() && pending.size) flushNew(); }, { passive: true });
+$("newb").onclick = () => { flushNew(); msgsBox().scrollTop = 0; };
+$("loadMore").onclick = () => void loadMore();
+document.querySelectorAll(".sh .sf[data-f]").forEach((b) => b.addEventListener("click", () => {
+  msgType = b.dataset.f; document.querySelectorAll(".sh .sf[data-f]").forEach((x) => x.setAttribute("aria-pressed", x === b)); renderMsgs();
+}));
+function filterWho(n) {
+  msgWho = n; $("whoName").textContent = n ? `只看 ${n}` : ""; $("who").classList.toggle("on", !!n);
+  if (n && $("side").classList.contains("closed")) setSideClosed(false);
+  renderMsgs();
+}
+$("whoX").onclick = () => filterWho("");
+scene.addEventListener("click", (e) => { const p = e.target.closest(".p"); const n = p && p.querySelector(".fn")?.textContent; if (n) filterWho(n); });
+
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+$("fTeam").onclick = (e) => { onlyTeam = !onlyTeam; e.currentTarget.setAttribute("aria-pressed", onlyTeam); last && render(last); };
+/* 收起 / 展开消息栏：收起只剩右边一条窄边，状态记在 localStorage，刷新后还保持着 */
+const SIDE_KEY = "board.sideClosed";
+function setSideClosed(closed) {
+  $("side").classList.toggle("closed", closed);
+  $("fMsg").setAttribute("aria-pressed", String(!closed));
+  try { localStorage.setItem(SIDE_KEY, closed ? "1" : "0"); } catch {}
+  layout(true);
+}
+let sideStartClosed = false; try { sideStartClosed = localStorage.getItem(SIDE_KEY) === "1"; } catch {}
+$("side").classList.toggle("closed", sideStartClosed);
+$("fMsg").setAttribute("aria-pressed", String(!sideStartClosed));
+$("fMsg").onclick = () => setSideClosed(!$("side").classList.contains("closed"));
+$("fold").onclick = () => setSideClosed(true);
+$("sideTab").onclick = () => setSideClosed(false);
+let rz = 0;
+addEventListener("resize", () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(() => layout(true)); });
+// 快照没变化就不推（A2），「几分钟前」这类相对时间靠本地定时重画
+setInterval(() => { if (feedLoaded) renderMsgs(); }, 30000);
+function connect() {
+  const es = new EventSource("/events");
+  es.onmessage = (e) => render(JSON.parse(e.data));
+  es.onerror = () => { $("upd").textContent = "连接断了，重连中…"; es.close(); setTimeout(connect, 3000); };
+}
+layout(true);
+connect();
+</script>
+</body>
+</html>

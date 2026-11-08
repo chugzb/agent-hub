@@ -1,0 +1,8 @@
+# 本机运行数据、备份，不进仓库
+*.bak*
+board-v*.html
+node_modules/
+.DS_Store
+*.log
+roles.json
+seats.json

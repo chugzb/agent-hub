@@ -1,0 +1,4 @@
+{
+  "d1": { "name": "d1 桌面", "kind": "desktop", "model": "desktop", "log": "d1-桌面" },
+  "d2": { "name": "d2 桌面", "kind": "desktop", "model": "desktop", "log": "d2-桌面" }
+}

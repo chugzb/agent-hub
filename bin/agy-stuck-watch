@@ -1,0 +1,26 @@
+#!/bin/zsh
+# 桌面端员工卡住检测：在干活（没在等活）却 10 分钟没新动作就打一行提醒；每分钟查一次
+while true; do
+  out=$(FULL=1 node ${0:A:h:h}/desk.mjs GetAllCascadeTrajectories '{}' 2>/dev/null) || { sleep 60; continue; }
+  python3 - "$out" <<'PY'
+import json,sys,os,time,calendar
+d=json.loads(sys.argv[1]).get("trajectorySummaries",{})
+roles=json.load(open(os.path.expanduser("~/.config/agy-team/roles.json")))
+st_file=os.path.expanduser("~/agy-logs/.stuck-warned.json")
+try: warned=json.load(open(st_file))
+except Exception: warned={}
+for k,r in roles.items():
+    t=d.get(r.get("desktop_id",""))
+    if not t: continue
+    try: pres=json.load(open(os.path.expanduser(f"~/agy-logs/presence/{k}.json")))
+    except Exception: pres={}
+    waiting=pres.get("state")=="waiting" and time.time()*1000-pres.get("beat",0)<60000
+    age=time.time()-calendar.timegm(time.strptime(t["lastModifiedTime"][:19],"%Y-%m-%dT%H:%M:%S"))
+    stuck=t["status"].endswith("RUNNING") and not waiting and age>600
+    if stuck and not warned.get(k):
+        print(f"{k} 在干活但已经 {int(age//60)} 分钟没新动作，可能卡在权限弹窗或命令上", flush=True); warned[k]=1
+    if not stuck: warned.pop(k,None)
+json.dump(warned,open(st_file,"w"))
+PY
+  sleep 60
+done

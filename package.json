@@ -1,0 +1,28 @@
+{
+  "name": "agent-hub",
+  "version": "0.5.0",
+  "description": "Local hub for Claude Code and other coding agents: dispatch tasks, exchange messages, and watch a read-only live board.",
+  "license": "MIT",
+  "bin": {
+    "agent-hub": "bin/agent-hub",
+    "agy-agents": "bin/agy-agents",
+    "agy-send": "bin/agy-send",
+    "agy-reply": "bin/agy-reply",
+    "agy-stop": "bin/agy-stop",
+    "agy-tell": "bin/agy-tell",
+    "agy-inbox-fmt": "bin/agy-inbox-fmt",
+    "agy-stuck-watch": "bin/agy-stuck-watch"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "board": "node board.mjs",
+    "board:demo": "BOARD_DEMO=1 node board.mjs 3090"
+  },
+  "os": [
+    "darwin"
+  ],
+  "dependencies": {}
+}
