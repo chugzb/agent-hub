@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>谁在干活</title>
+<style>
+/* 悬浮窗里的精简页：只列在干活 / 要处理的人，数据走 board.mjs 的 /events，不另算快照。
+   页面透明（背景是 macOS 的毛玻璃），高度自己报给小程序，宽度由窗口定。 */
+:root{color-scheme:light dark;--ink:#1d2430;--muted:#6b7380;--line:rgba(20,40,60,.10);
+  --work:#16a34a;--stuck:#dc2626;--off:#9aa3ad;--hover:rgba(20,40,60,.06);--attbg:rgba(220,38,38,.09);
+  font-family:-apple-system,"PingFang SC","Hiragino Sans GB",system-ui,sans-serif}
+@media (prefers-color-scheme:dark){:root{--ink:#eef1f5;--muted:#a3abb6;--line:rgba(255,255,255,.10);
+  --work:#34d17a;--stuck:#ff6b6b;--off:#8b93a0;--hover:rgba(255,255,255,.07);--attbg:rgba(255,107,107,.12)}}
+*{box-sizing:border-box}
+/* 背景跟网页看板的暖色地板一个调子（#ebb980 的淡版），底下仍是 macOS 的毛玻璃 */
+html,body{margin:0;background:transparent}
+@media (prefers-color-scheme:light){html{background:rgba(255,246,232,.66)}}
+body{color:var(--ink);font-size:12.5px;-webkit-user-select:none;user-select:none;overflow:hidden}
+.sum{display:flex;align-items:center;gap:2px;flex-wrap:wrap;padding:7px 10px 6px;border-bottom:1px solid var(--line);font-size:12px}
+.sum span{white-space:nowrap}
+.sum b{font-variant-numeric:tabular-nums;margin-left:3px;font-weight:700}
+.sum b.w{color:var(--work)}.sum b.a{color:var(--stuck)}.sum b.q{color:var(--off)}
+.sum i{color:var(--muted);font-style:normal;padding:0 2px}
+.list{max-height:420px;overflow-y:auto;overscroll-behavior:contain;padding:4px 6px 6px}
+.row{display:flex;align-items:center;gap:6px;padding:5px 5px;border-radius:8px;color:inherit;text-decoration:none}
+.row:hover{background:var(--hover)}
+.row.att{background:var(--attbg)}
+.row img{width:18px;height:18px;border-radius:50%;object-fit:contain;flex:none}
+.nm{font-weight:600;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none}
+.row.att .nm{color:var(--stuck)}
+.tool{color:#fff;border-radius:999px;padding:0 5px;font-size:10.5px;line-height:15px;font-weight:600;flex:none}
+.t-cc{background:#c96442}.t-agy{background:#3b6fd8}.t-dv{background:#13795b}.t-cx{background:#111827}.t-tm{background:#6b7280}
+.do{flex:1;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.row.att .do{color:var(--stuck);opacity:.85}
+.hm{flex:none;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+.empty{color:var(--muted);text-align:center;padding:18px 0 20px}
+</style>
+</head>
+<body>
+<div class="sum"><span>在干活<b class="w" id="nW">0</b></span><i>·</i><span>要处理<b class="a" id="nA">0</b></span><i>·</i><span>没额度<b class="q" id="nQ">0</b></span><i>·</i><span>歇着<b id="nI">0</b></span></div>
+<div class="list" id="list"><div class="empty">连接中…</div></div>
+<script>
+const $=id=>document.getElementById(id);
+function render(s){
+for(const [k,id] of Object.entries({working:'nW',attention:'nA',quota:'nQ',idle:'nI'}))$(id).textContent=s.counts[k];
+const list=$('list');list.replaceChildren();
+for(const a of s.rows){
+ const row=document.createElement('div');row.className='row'+(a.group==='attention'?' att':'');row.tabIndex=0;row.title=a.name+' · '+a.doing;row.setAttribute('aria-label',row.title);
+ const img=document.createElement('img');img.src='/assets/cut/'+a.avatar+'-working.webp';img.alt='';row.append(img);
+ for(const [cls,txt]of [['nm',a.name],['tool',a.tool],['do',a.doing],['hm',a.elapsed]]){const el=document.createElement('span');el.className=cls;el.textContent=txt;row.append(el);}
+ row.querySelector('.tool').classList.add(({Codex:'t-cx',Kiro:'t-dv',Cursor:'t-agy',DS:'t-tm',Claude:'t-cc'})[a.tool]||'t-tm');
+ row.addEventListener('click',()=>{const d=row.querySelector('.do');d.style.whiteSpace=d.style.whiteSpace==='normal'?'nowrap':'normal';});
+ row.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();row.click();}});
+ list.append(row);
+}
+if(!s.rows.length){const e=document.createElement('div');e.className='empty';e.textContent='都歇着';list.append(e);}
+}
+let pending=false;async function refresh(){if(pending)return;pending=true;try{const r=await fetch('/api/float');if(!r.ok)throw Error();render(await r.json());document.title='员工悬浮窗';}catch{document.title='员工悬浮窗 · 连接断开';}finally{pending=false;}}
+refresh();setInterval(refresh,3000);
+</script></body></html>

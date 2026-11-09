@@ -11,6 +11,11 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { TOOLS, configPath, readConfig, detectTool, isExe } from "./toolpaths.mjs";
 
+
+if (process.platform === "win32") {
+  await import("./windows-doctor.mjs");
+} else {
+
 const HOME = process.env.HOME || homedir();
 const NO_MCP = process.argv.includes("--no-mcp");
 const NO_LAUNCHD = process.argv.includes("--no-launchd");
@@ -242,3 +247,5 @@ for (const r of results) console.log(pad(r.pass ? "通" : "断", 4) + pad(r.side
 const bad = results.filter((r) => !r.pass).length;
 console.log(bad ? `\n${bad} 项不通` : `\n全部 ${results.length} 项都通`);
 process.exit(bad ? 1 : 0);
+
+}

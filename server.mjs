@@ -12,6 +12,11 @@ import { toolPath } from "./toolpaths.mjs";
 import { masterName } from "./identity.mjs";
 import { archiveInbox, ARCHIVE_AT_BYTES } from "./inbox-archive.mjs";
 
+
+if (process.platform === "win32") {
+  await import("./windows-server.mjs");
+} else {
+
 const HOME = homedir();
 // HUB_DIR 只给测试用，正式都用 ~/agy-logs
 const DIR = process.env.HUB_DIR ?? join(HOME, "agy-logs");
@@ -398,3 +403,5 @@ process.stdin.on("data", (chunk) => {
 });
 // 客户端关了输入，等手上的请求做完再退
 process.stdin.on("end", () => Promise.allSettled([...pending]).then(() => process.exit(0)));
+
+}

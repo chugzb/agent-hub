@@ -14,6 +14,11 @@ import {
 import { nextReset } from "./health.mjs";
 import { demoPage, demoSnapshot } from "./demo-data.mjs";
 
+
+if (process.platform === "win32" && process.env.BOARD_DEMO !== "1") {
+  await import("./windows-board.mjs");
+} else {
+
 const PORT = Number(process.argv[2] || process.env.BOARD_PORT || 4646);
 const HOME = os.homedir();
 const SESS = path.join(HOME, ".claude", "sessions");
@@ -381,3 +386,5 @@ const server = http.createServer(async (req, res) => {
   res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }); res.end(fs.readFileSync(new URL("./board.html", import.meta.url), "utf8"));
 });
 server.listen(PORT, "127.0.0.1", () => console.log(`员工看板：http://127.0.0.1:${PORT}`));
+
+}

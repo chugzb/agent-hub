@@ -17,12 +17,14 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test --test-concurrency=2",
     "board": "node board.mjs",
-    "board:demo": "BOARD_DEMO=1 node board.mjs 3090"
+    "board:demo": "BOARD_DEMO=1 node board.mjs 3090",
+    "services": "node services.mjs"
   },
   "os": [
-    "darwin"
+    "darwin",
+    "win32"
   ],
   "dependencies": {}
 }

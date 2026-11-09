@@ -14,6 +14,11 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { TOOLS, configPath, readConfig, detectTool, isExe } from "./toolpaths.mjs";
 
+
+if (process.platform === "win32") {
+  await import("./windows-cli.mjs");
+} else {
+
 const SRC = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const cmd = argv[0];
@@ -369,3 +374,5 @@ function renew() {
 const commands = { install, update, uninstall, doctor, open, renew, float };
 if (!commands[cmd]) { usage(); process.exit(cmd && cmd !== "help" && cmd !== "--help" ? 2 : 0); }
 process.exit((await commands[cmd]()) || 0);
+
+}
