@@ -5,6 +5,8 @@
 //   {state:"big", at, mb}             未清理的内容已经很大，快到 30MB，不自动换
 //   {state:"fallback", at, model, from, until}  额度用完，已自动换成备用模型接着干
 //   {state:"quota", at, until, from}  额度用完、备选也都没额度，等 until 恢复，这期间不再重试
+//   {state:"resumed", at, count, taskId, gaveUp?}  话说一半就收工，已自动叫醒续上 count 次（gaveUp=true：续满次数还是停，只通知）
+//   <员工>.sub.json {at, running:[{id, steps, said}]}  员工把活交给了反重力子 agent、子 agent 还在跑（看板显示「子 agent 在做：…」）
 //   {state:"ok", at}                  正常
 import fs from "node:fs";
 import os from "node:os";
@@ -13,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import {
   inspect as deskInspect, renew as deskRenew, summaries as deskSummaries, wake as deskWake,
   modelConfigs as deskConfigs, isQuotaError, pickFallback, chainFor, poolOf, configLabel, clockText,
-  familyName, readRoles, lastTaskFrom,
+  familyName, readRoles, lastTaskFrom, lastTaskOf, peekReply,
 } from "./desk.mjs";
 
 export const BIG_MB = 24;                 // 未清理的内容到这个数就预警（上限 30MB，留几轮的余量）
@@ -22,7 +24,12 @@ export const SIZE_CHECK_MS = 10 * 60_000;       // 量大小要把整段对话�
 export const NOTIFY_AGAIN_MS = 60 * 60_000;     // 同一种预警 1 小时内不重复发
 export const QUOTA_FRESH_MS = 10 * 60_000;      // 额度报错超过这个时间就不自动叫醒了：那单多半已经有人接手做完，叫醒会重做一遍
 export const RENEWED_SHOW_MS = 30 * 60_000;     // 「已自动换新对话」的状态至少保留 30 分钟再改回 ok
+export const RESUME_MAX = 2;                      // 同一单最多自动续几次
+export const RESUME_GRACE_MS = 2 * 60_000;        // 停下后先等 2 分钟：后台命令跑完，反重力自己可能会接着干，别抢
+export const RESUME_MAX_AGE_MS = 6 * 3600_000;    // 停了超过 6 小时的不自动叫醒（多半已经被人接手或放弃）
+export const RESUMED_SHOW_MS = 30 * 60_000;       // 「自动续上」状态至少保留 30 分钟再改回 ok
 const TERMINATION_ERROR = "EXECUTOR_TERMINATION_REASON_ERROR";
+const TERMINATION_NO_TOOL = "EXECUTOR_TERMINATION_REASON_NO_TOOL_CALL";
 const IDLE = "CASCADE_RUN_STATUS_IDLE";
 
 const HOME = () => process.env.HOME || os.homedir();
@@ -69,6 +76,64 @@ export function nextReset(configs, now) {
   }
   return ts.length ? new Date(Math.min(...ts)).toISOString() : "";
 }
+
+/** 停着（IDLE），上一轮是「没有再调工具」自己结束的 */
+export function looksStopped(summary) {
+  return !!summary && summary.status === IDLE && summary.latestExecutorTerminationReason === TERMINATION_NO_TOOL;
+}
+
+// 「话说一半」的话：只看最后 200 个字，关键词表 + 结尾不是收尾的话，别太聪明（中英文都认）
+const UNFINISHED = [
+  /正在/, /待[^。！？\n]{0,24}(完成|结束|返回|就绪|跑完)/, /稍后(继续|再)/, /(完成|结束|返回|跑完)后[^。！？\n]{0,6}(立即|马上|再|继续|开始)/,
+  /后台[^。！？\n]{0,16}(运行|执行|抓取|任务|命令)/, /(接下来|下一步)[^。！？\n]{0,6}(将|会|我)/, /我将(继续|等待|读取|开始)/, /继续(执行|抓取|读取|撰写|处理)/,
+  /\bI['’]?ll (wait|continue|verify|check|proceed|resume)\b/i, /\bwait(ing)? (for|on)\b/i, /\bwill (continue|resume|proceed|verify)\b/i,
+  /\bonce\b[^.!?\n]{0,80}\b(finish(es)?|complete[sd]?|done|ready|returns?|report)\b/i, /\b(running|runs) (in|on) (the |a )?(background|sub-?agent)\b/i, /\bin the background\b/i,
+  /\b(then|and) (verify|send)\b/i,
+];
+const FINISHED_ZH = /(已完成|做完了?|完成了?|收工|结束这一轮|等(新活|下一单|你的?指示)|待命|已回报|已发(送)?\s*(done|给\s*\S{1,30})|提交号\s*\w+)[\s。.!！)）」"]*$/i;
+const FINISHED_EN = /(\bsent done|\bhave sent|\balready sent|\bcommitted|\ball done|\bis done|\bare done|\bwaiting for (the )?next (task|assignment|one|job)|\bready for (the )?next|\bstanding by)[^.!?\n]{0,40}[.!)"”\s]*$|^\W*done\W*$/i;
+const FUTURE_SEND = /\b(will|I['’]?ll|then|and|to)\s+send\b/i;   // 「then verify and send done」是还没发，别当成收尾
+export function looksUnfinished(text) {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  const end = t.slice(-60);
+  if ((FINISHED_ZH.test(t.slice(-40)) || FINISHED_EN.test(end)) && !FUTURE_SEND.test(end)) return false;
+  const tail = t.slice(-200);
+  return UNFINISHED.some((re) => re.test(tail));
+}
+/** 最后一句（给通知和叫醒消息引用） */
+const lastSentence = (text, n = 120) => { const t = String(text ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? "…" + t.slice(-n) : t; };
+
+const RUNNING = "CASCADE_RUN_STATUS_RUNNING";
+/** 员工交给反重力子 agent 的对话里，哪些还在跑（S 是摘要表） */
+export function runningSubagents(ids, S) { return (ids ?? []).filter((x) => S?.[x]?.status === RUNNING); }
+
+/** 便宜的预检（不用拉整段对话）：停了够久、没停太久、发给它的最后一条活之后它没发过 done / help */
+export function resumeGate({ summary, task, now }) {
+  if (!looksStopped(summary)) return "not-stopped";
+  const age = now - Date.parse(summary.lastModifiedTime ?? "");
+  if (!(age >= RESUME_GRACE_MS)) return "wait";
+  if (age > RESUME_MAX_AGE_MS) return "stale";
+  if (!task) return "no-task";
+  if (task.doneAfter || task.helpAfter) return "replied";
+  return "ok";
+}
+
+/** 拉了整段对话之后的判断（纯函数）：不像半路收工 → none；续过 RESUME_MAX 次还是停 → giveup；否则 resume（count 是这次续完后的次数） */
+export function decideResume({ info, task, state, now }) {
+  void now;
+  if (!looksUnfinished(info?.lastReply)) return { act: "none", why: "not-unfinished" };
+  if (info.lastType === "CORTEX_STEP_TYPE_ERROR_MESSAGE" || info.lastReplyFromEnd < 0 || info.lastReplyFromEnd > 3) return { act: "none", why: "not-last-turn" };
+  const same = state?.taskId === task?.id;
+  if (same && state.gaveUp) return { act: "none", why: "gave-up" };
+  const count = same ? state.count ?? 0 : 0;
+  if (count >= RESUME_MAX) return { act: "giveup", count };
+  return { act: "resume", count: count + 1 };
+}
+
+const resumeFile = (role) => path.join(presenceDir(), `${encodeURIComponent(role)}.resume.json`);
+const readResume = (role) => { try { return JSON.parse(fs.readFileSync(resumeFile(role), "utf8")); } catch { return null; } };
+const writeResume = (role, obj) => { fs.mkdirSync(presenceDir(), { recursive: true }); fs.writeFileSync(resumeFile(role), JSON.stringify(obj) + "\n"); };
 
 /** 给主控发通知（走 agent-hub 的 send_message，发件人写「系统」） */
 export function notify(type, text, to = NOTIFY_TO()) {
@@ -158,13 +223,78 @@ export async function quotaStep(role, id, info, { m, now, say, configs, wake }) 
   return "fallback";
 }
 
+async function writeSub(role, run, S, now, peek) {
+  const list = [];
+  for (const sid of run) { const p = await peek(sid); list.push({ id: sid, steps: S?.[sid]?.stepCount ?? p.steps, said: lastSentence(p.said, 100) }); }
+  fs.mkdirSync(presenceDir(), { recursive: true });
+  fs.writeFileSync(subFile(role), JSON.stringify({ at: now, running: list }) + "\n");
+}
+
+/**
+ * 话说一半就收工：员工把命令放后台、说一句「正在…待…完成后继续」就结束了这一轮，之后没人叫醒。
+ * 停够 2 分钟、它之后没发过 done/help、最后一句像没收尾 → 用原模型叫醒一次（同一单最多 2 次）；还停就通知派活人，不再续。
+ */
+const subFile = (role) => path.join(presenceDir(), `${encodeURIComponent(role)}.sub.json`);
+export function readSub(role) { try { return JSON.parse(fs.readFileSync(subFile(role), "utf8")); } catch { return null; } }
+const clearSub = (role) => { try { fs.rmSync(subFile(role), { force: true }); } catch { /* 没有就算了 */ } };
+
+export async function resumeStep(role, id, t, { m, now, say, inspect, wake, getTask, S, peek }) {
+  const key = `${id}@${t.lastModifiedTime}`;
+  if (m.resumeKey === key) return null;
+  // 员工把活交给了子 agent、子 agent 还在跑：它不是半路收工，是在等子 agent 的汇报。每轮刷新「子 agent 在做什么」给看板，不续、也不占用这个状态——
+  // 等子 agent 跑完，员工还停着没发 done，再按下面原来的规则判断
+  if (m.resumeInfo?.key === key) {
+    const run = runningSubagents(m.resumeInfo.info.subagents, S);
+    if (run.length) { await writeSub(role, run, S, now, peek ?? peekReply); return "subagent"; }
+  }
+  const task = getTask();
+  const gate = resumeGate({ summary: t, task, now });
+  if (gate === "wait") return null;        // 还在宽限期，下一轮再看
+  if (gate !== "ok") { m.resumeKey = key; return null; }
+  if (m.resumeInfo?.key !== key) m.resumeInfo = { key, info: await inspect(id) };
+  const info = m.resumeInfo.info;
+  const run = runningSubagents(info.subagents, S);
+  if (run.length) { await writeSub(role, run, S, now, peek ?? peekReply); return "subagent"; }
+  clearSub(role);
+  m.resumeKey = key; m.resumeInfo = null;  // 同一个停下的状态只判断一次
+  const state = readResume(role);
+  const d = decideResume({ info, task, state, now });
+  if (d.act === "none") return null;
+  const keep = { lastRenewAt: m.lastRenewAt, lastRenewTo: m.lastRenewTo };
+  const said = lastSentence(info.lastReply);
+  const tell = (msg) => {                  // 通知主控和最后派活的人
+    say("help", msg);
+    const boss = task.from;
+    if (boss && boss !== NOTIFY_TO() && boss !== "系统" && boss !== role) say("help", msg, boss);
+  };
+  if (d.act === "giveup") {
+    writeResume(role, { taskId: task.id, count: state.count, at: now, gaveUp: true });
+    writeHealth(role, { state: "resumed", at: now, count: state.count, taskId: task.id, gaveUp: true, ...keep });
+    tell(`【半路收工，自动续了 ${state.count} 次还是停】${role} 的活（${brief(task)}）停在：「${said}」。不再自动续，请看看它卡在哪，必要时手动叫醒或换人。`);
+    return "resume-giveup";
+  }
+  const text = d.count === 1
+    ? `继续刚才那单，从断的地方接着做；不要把命令放后台再结束这一轮（命令在前台跑，要等就等它跑完再继续）。你上一轮停在：「${said}」`
+    : `（第 ${d.count} 次自动续上）继续刚才那单，从断的地方接着做；不要把命令放后台再结束这一轮，命令在前台跑完再继续，别只说「正在…」就停。再停在半路就要通知派活人了。你上一轮停在：「${said}」`;
+  try { await wake(id, text, { role }); } catch (e) {
+    if (!m.notifiedAt.resumeFail || now - m.notifiedAt.resumeFail >= NOTIFY_AGAIN_MS) {
+      m.notifiedAt.resumeFail = now;
+      tell(`【半路收工，自动续上失败】${role} 的活（${brief(task)}）停在：「${said}」，叫醒没发出去：${e.message}。请手动叫醒它。`);
+    }
+    return "resume-failed";
+  }
+  writeResume(role, { taskId: task.id, count: d.count, at: now, gaveUp: false });
+  writeHealth(role, { state: "resumed", at: now, count: d.count, taskId: task.id, ...keep });
+  return "resumed";
+}
+
 /**
  * 检查一个员工。deps 可以换成假的做测试：{ inspect, renew, notify, now }。
  * S 是 GetAllCascadeTrajectories 的摘要表。返回这一轮做了什么，方便日志和测试。
  */
 export async function checkRole(role, id, S, deps = {}) {
   const inspect = deps.inspect ?? deskInspect, doRenew = deps.renew ?? deskRenew, say = deps.notify ?? notify;
-  const doConfigs = deps.configs ?? deskConfigs, doWake = deps.wake ?? deskWake;
+  const doConfigs = deps.configs ?? deskConfigs, doWake = deps.wake ?? deskWake, getTask = deps.lastTask ?? lastTaskOf;
   const now = deps.now ?? Date.now();
   const m = memOf(role), t = S[id];
   if (!t) return "no-summary";
@@ -214,6 +344,14 @@ export async function checkRole(role, id, S, deps = {}) {
     }
   }
 
+  // 1b. 话说一半就收工？（停着、没出错、没发 done）→ 自动叫醒续上，最多 2 次
+  if (looksStopped(t) && m.resumeKey !== `${id}@${t.lastModifiedTime}`) {
+    const done = await resumeStep(role, id, t, { m, now, say, inspect, wake: doWake, getTask: () => getTask(role), S, peek: deps.peek });
+    if (done) return done;
+  }
+
+  if (!looksStopped(t) && m.resumeInfo) { m.resumeInfo = null; clearSub(role); }   // 员工又动起来了（比如子 agent 汇报后被叫醒），子 agent 的标记收掉
+
   // 2. 快撑爆了？量一次大小（整段对话要拉下来，所以限频）
   if (shouldMeasure({ stepCount: t.stepCount, lastSteps: m.lastSteps, lastAt: m.lastSizeAt, now })) {
     m.lastSteps = t.stepCount; m.lastSizeAt = now;
@@ -229,9 +367,10 @@ export async function checkRole(role, id, S, deps = {}) {
     }
     const h = readHealth(role);
     const freshRenewed = h?.state === "renewed" && now - h.at < RENEWED_SHOW_MS;   // 刚换过的，让看板多显示一阵子
+    const freshResumed = h?.state === "resumed" && now - h.at < RESUMED_SHOW_MS;     // 刚自动续上的，也多显示一阵子
     // 额度备用态没到重置时间也别盖掉（看板要显示「已切 Gemini」/「额度用完」）
     const backup = (h?.state === "fallback" || h?.state === "quota") && (!h.until || now < Date.parse(h.until));
-    if (!freshRenewed && !backup && (!h || h.state !== "ok")) writeHealth(role, { state: "ok", at: now, mb, lastRenewAt: m.lastRenewAt, lastRenewTo: m.lastRenewTo });
+    if (!freshRenewed && !freshResumed && !backup && (!h || h.state !== "ok")) writeHealth(role, { state: "ok", at: now, mb, lastRenewAt: m.lastRenewAt, lastRenewTo: m.lastRenewTo });
     return "ok";
   }
   return "skip";

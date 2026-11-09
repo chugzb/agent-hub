@@ -1,6 +1,6 @@
 {
   "name": "agent-hub",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Local hub for Claude Code and other coding agents: dispatch tasks, exchange messages, and watch a read-only live board.",
   "license": "MIT",
   "bin": {

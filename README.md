@@ -23,6 +23,8 @@ agent-hub 用一个本地收件箱当总线：主控通过 MCP 派活，每个�
 - **看板**：干活区 / 待命区两块场景，头像看模型、色签看工具；状态分「在干活 / 歇着 / 要处理 / 不在」，等会话和状态未知单独标；左边是消息卡片（筛选、只看某人、加载更早）。
 - **对话撑爆自动换新对话**：反重力对话超过 30MB 上限时，自动沿用工作区、模型、标题开新对话，带上身份和没做完的活，员工表自动换号并通知主控。
 - **额度用完自动换模型**：反重力员工额度用完时，在同一个对话里换成还有额度的备用模型接着干（上下文保留）。默认链：Claude 系 → Gemini 4 Argon High → Gemini 3.8 Flash High；Gemini 系 → Claude Opus 5.5 High；员工表里用 `fallback_models` 可以按员工覆盖。只对 10 分钟内新发生的报错自动切，旧报错只在看板标「额度用完 · HH:MM 恢复」。额度池重置后，下一单自动切回首选模型（`plan_model`）。看板顶栏把这些员工单独计成「没额度 N」，人挪进待命区、灰显恢复时间。Codex / Devin 员工配了 `fallback_model` 时，换它重跑一轮。
+- **话说一半自动续上**：反重力员工跑了后台命令就结束回合、活没做完时，自动叫它接着做（每单最多 2 次）；员工把活交给子 agent 时不续，看板标「子 agent」。
+- **桌面悬浮窗**：一个可以拖到任意位置的小窗，不开浏览器也能看谁在干活、谁要处理、谁没额度；双击收起成一颗小球（有人要处理时变红），右键可打开完整看板、调透明度、开关开机启动。不抢焦点，全屏应用和切换桌面时也在。
 - **自检**：`agent-hub doctor` 检查 MCP、常驻、看板、工具路径、每个员工在不在线。
 
 ## 5 分钟安装（macOS）
@@ -46,7 +48,7 @@ agent-hub 用一个本地收件箱当总线：主控通过 MCP 派活，每个�
    - 建员工表 `~/.config/agy-team/roles.json`（已有则不覆盖）；
    - 注册 MCP（Claude Code 用户级、反重力）；
    - 把 `~/.claude/settings.json` 的 `crossSessionInbound` 设为 `accept`（改之前先备份，卸载时恢复）；
-   - 生成并加载两个 launchd 常驻：`dev.agent-hub.bridges`、`dev.agent-hub.board`；
+   - 生成并加载 launchd 常驻：`dev.agent-hub.bridges`、`dev.agent-hub.board`，以及桌面悬浮窗 `dev.agent-hub.float`（用系统自带的 swiftc 编译成 `~/Applications/Agent Hub.app`；没装 Xcode 命令行工具就跳过，不影响其他功能）；
    - 跑一遍自检。
 
    重复跑结果一样。想先在不碰本机的情况下演练：
@@ -94,6 +96,7 @@ Claude Code 会话原生支持，不用写进员工表。
 | `agent-hub doctor` | 自检：MCP、常驻、看板、工具路径、每个员工在不在线 |
 | `agent-hub open` | 打开看板 |
 | `agent-hub renew <员工号>` | 反重力对话撑爆后手动换新对话（`--dry-run` 只看不做） |
+| `agent-hub float` | 打开桌面悬浮窗（`--quit` 关掉） |
 
 安装 / 卸载 / 自检通用选项：
 
@@ -194,6 +197,8 @@ agent-hub uses a local JSONL inbox as the bus. The master dispatches through an 
 - **Board**: work area / standby area, avatars by model, color tags by tool, states (working / idle / needs attention / away, plus waiting-for-session and unknown), and a message card on the left with filters, "only this person", and load-older.
 - **Auto-renew on overflow**: when an Antigravity conversation hits the ~30MB limit, a fresh conversation is created with the same workspace, model, title, identity and unfinished task.
 - **Automatic fallback on quota exhaustion**: when an Antigravity worker runs out of quota, it keeps working in the same conversation on a fallback model (context preserved). Default chain: Claude family → Gemini 4 Argon High → Gemini 3.8 Flash High; Gemini family → Claude Opus 5.5 High; override per worker with `fallback_models` in the roles file. Only errors from the last 10 minutes trigger a switch; older errors just show "quota exhausted · resets HH:MM" on the board. After the quota pool resets, the next task automatically uses the preferred model (`plan_model`) again. The top bar counts these workers separately as "no quota N"; they move to the standby area with a grey badge showing when quota returns. Codex / Devin workers with `fallback_model` set are re-run once on that model.
+- **Auto-resume when a worker stops halfway**: if an Antigravity worker ends its turn after starting background commands with the task unfinished, it is nudged to continue (at most twice per task); handing work to a sub-agent is not treated as stopping, and the board shows "sub-agent".
+- **Desktop floating window**: a small draggable panel that shows who is working, who needs attention and who is out of quota without opening a browser. Double-click to collapse it into a ball (turns red when someone needs attention); right-click to open the full board, change opacity or toggle launch at login. It never steals focus and stays visible over full-screen apps and across Spaces.
 - **Self check**: `agent-hub doctor` verifies MCP, daemons, board, tool paths and worker presence.
 
 ## Install in 5 minutes (macOS)
@@ -206,7 +211,7 @@ cd ~/agent-hub-src
 bin/agent-hub install
 ```
 
-The installer copies the code to `~/.local/share/agent-hub`, links commands into `~/.local/bin` (make sure it is on PATH), detects tool paths into `~/.config/agent-hub/config.json`, creates `~/.config/agy-team/roles.json`, registers MCP servers, sets `crossSessionInbound: accept` in `~/.claude/settings.json` (with a backup), installs two launchd agents, and runs the doctor.
+The installer copies the code to `~/.local/share/agent-hub`, links commands into `~/.local/bin` (make sure it is on PATH), detects tool paths into `~/.config/agent-hub/config.json`, creates `~/.config/agy-team/roles.json`, registers MCP servers, sets `crossSessionInbound: accept` in `~/.claude/settings.json` (with a backup), installs launchd agents for the bridges and the board, builds the desktop floating window with the system swiftc into `~/Applications/Agent Hub.app` (skipped if the Xcode command line tools are missing), and runs the doctor.
 
 Rehearse without touching your real home:
 
@@ -246,6 +251,7 @@ Claude Code sessions are supported natively and do not need an entry.
 | `agent-hub doctor` | Self check |
 | `agent-hub open` | Open the board |
 | `agent-hub renew <worker>` | Manually renew an overflowed Antigravity conversation (`--dry-run` to preview) |
+| `agent-hub float` | Open the desktop floating window (`--quit` to close it) |
 
 Options for install / uninstall / doctor: `--home <dir>` (rehearse in a fake home), `--no-launchd`, `--no-mcp`.
 

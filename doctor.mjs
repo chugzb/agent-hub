@@ -168,6 +168,9 @@ async function checkLocal() {
       else ok(S, `${t} 路径`, isExe(v), isExe(v) ? v : `${v} 不存在或不可执行`);
     }
   }
+  // 桌面悬浮窗：编译不出来（没装命令行工具）算「没装，跳过」，不算失败
+  const floatExe = join(HOME, "Applications", "Agent Hub.app", "Contents", "MacOS", "AgentHub");
+  ok(S, "桌面悬浮窗", true, existsSync(floatExe) ? `已编译：${join(HOME, "Applications", "Agent Hub.app")}` : "没装，跳过（没有命令行工具时 install 会跳过）");
   if (NO_LAUNCHD) { ok(S, "常驻在跑", true, "跳过（--no-launchd）"); ok(S, "看板 4646 能打开", true, "跳过（--no-launchd）"); return; }
   const { execFileSync } = await import("node:child_process");
   let launch = ""; try { launch = execFileSync("launchctl", ["list"], { encoding: "utf8" }); } catch {}

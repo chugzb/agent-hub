@@ -101,7 +101,8 @@ function runCodex(prompt, model) {
   const r = role();
   const out = path.join(PRES, `${encodeURIComponent(ROLE)}.last.txt`);
   try { fs.rmSync(out, { force: true }); } catch {}
-  const common = ["--skip-git-repo-check", "-s", r.sandbox || "read-only", "-o", out, "--json"];
+  // 11-08：新版 codex 的 exec resume 不认 -s，沙箱一律用 -c sandbox_mode=… 传（exec 和 resume 都认）
+  const common = ["--skip-git-repo-check", "-c", `sandbox_mode=${r.sandbox || "read-only"}`, "-o", out, "--json"];
   if (r.effort) common.push("-c", `model_reasoning_effort=${r.effort}`);
   if (model) common.push("-m", model);
   const args = r.session ? ["exec", "resume", ...common, r.session, prompt] : ["exec", "-C", r.cwd || HOME, ...common, prompt];

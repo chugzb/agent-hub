@@ -35,7 +35,7 @@ const ROLES = path.join(HOME, ".config", "agy-team", "roles.json");
 const LOGS = path.join(HOME, "agy-logs");
 const AGENTS_DIR = path.join(HOME, "Library", "LaunchAgents");
 const SETTINGS = path.join(HOME, ".claude", "settings.json");
-const LABELS = { bridges: "dev.agent-hub.bridges", board: "dev.agent-hub.board" };
+const LABELS = { bridges: "dev.agent-hub.bridges", board: "dev.agent-hub.board", float: "dev.agent-hub.float" };
 const OLD_LABELS = ["dev.agent-hub-legacy-bridges", "dev.agent-hub-legacy-board"];
 const stamp = () => new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
 const log = (...a) => console.log(...a);
@@ -52,6 +52,9 @@ function usage() {
   agent-hub uninstall  卸常驻、注销 MCP、恢复 settings.json 那一项（员工表和日志留着）
   agent-hub doctor     自检
   agent-hub open       打开看板 http://127.0.0.1:4646
+  agent-hub float      打开桌面悬浮窗（install 时编译；收起后是一颗小球，右键有菜单）
+  agent-hub float --quit
+                       关掉悬浮窗（开机自动启动还在的话，下次开机仍会出现）
   agent-hub renew <员工号> [--dry-run] [--note "<文字>"]
                        反重力员工对话撑爆（超过 30MB 上限）后换新对话：沿用模型、标题、工作区，带上身份和发给它的最后一条活
                        （连带前后各 3 条往来），员工表换号。--dry-run 只看会发什么、不动手；
@@ -145,6 +148,55 @@ function setCrossSession() {
 
 const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 function plistPath(label) { return path.join(AGENTS_DIR, `${label}.plist`); }
+
+// 桌面悬浮窗：用系统自带的 swiftc 把 float.swift 编成 ~/Applications/Agent Hub.app
+// 没有命令行工具 / 编译失败时返回 null，install 只提醒、不影响其他功能
+const FLOAT_APP = () => path.join(HOME, "Applications", "Agent Hub.app");
+function buildFloat() {
+  if (REHEARSAL) { log("演练模式：跳过编译桌面悬浮窗"); return null; }
+  const app = FLOAT_APP();
+  const exe = path.join(app, "Contents", "MacOS", "AgentHub");
+  const which = run("xcrun", ["-f", "swiftc"]);
+  const swiftc = (which.stdout || "").trim();
+  if (which.status !== 0 || !swiftc || !fs.existsSync(swiftc)) {
+    warn("没找到 swiftc（Xcode 命令行工具没装），跳过桌面悬浮窗；其他功能照常。装好工具后重跑 agent-hub install");
+    return null;
+  }
+  const src = path.join(DEST, "float.swift");
+  if (!fs.existsSync(src)) { warn(`找不到 ${src}，跳过桌面悬浮窗`); return null; }
+  fs.mkdirSync(path.dirname(exe), { recursive: true });
+  // 新系统的 swiftc 不带 -sdk 会报「unable to load standard library for target 'arm64-apple-macosxNN.0'」
+  const sdk = (run("xcrun", ["--show-sdk-path"]).stdout || "").trim();
+  const args = ["-parse-as-library", "-O"];
+  if (sdk && fs.existsSync(sdk)) args.push("-sdk", sdk);
+  args.push("-o", exe, src);
+  const r = run(swiftc, args);
+  if (r.status !== 0) {
+    const tail = (r.stderr || r.stdout || "").trim().split("\n").slice(-3).join(" ").slice(0, 240);
+    warn(`桌面悬浮窗编译失败，跳过（${tail}）`);
+    return null;
+  }
+  const info = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>Agent Hub</string>
+  <key>CFBundleDisplayName</key><string>Agent Hub</string>
+  <key>CFBundleIdentifier</key><string>dev.agent-hub.float</string>
+  <key>CFBundleExecutable</key><string>AgentHub</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>LSUIElement</key><true/>
+  <key>LSMultipleInstancesProhibited</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+`;
+  fs.writeFileSync(path.join(app, "Contents", "Info.plist"), info);
+  run("codesign", ["--force", "--deep", "--sign", "-", app]);   // 本机自签，免得每次启动被拦
+  log(`桌面悬浮窗已编译：${app}`);
+  return app;
+}
 function genPlists(cfg) {
   const node = cfg.node || process.execPath;
   const dirs = [path.join(HOME, ".local", "bin"), path.dirname(node), cfg.tmux && path.dirname(cfg.tmux), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].filter(Boolean);
@@ -199,9 +251,11 @@ function install() {
   ensureRoles();
   if (NO_MCP) log("跳过 MCP 注册（--no-mcp）"); else registerMcp(cfg);
   setCrossSession();
+  const floatApp = buildFloat();
   const plists = genPlists(cfg);
+  if (!floatApp) { const f = plistPath(LABELS.float); if (fs.existsSync(f)) fs.rmSync(f); }   // 没编出来就别留个拉不起来的常驻
   const load = !NO_LAUNCHD && !REHEARSAL;
-  if (load) loadLaunchd(plists);
+  if (load) loadLaunchd(floatApp ? plists : plists.filter((p) => p.kind !== "float"));
   else log(NO_LAUNCHD ? "跳过 launchd 加载（--no-launchd）" : "演练模式：只生成 plist，不加载");
   if (load) spawnSync("sleep", ["6"]);           // 等桥登记完再自检
   log("\n== 自检 ==");
@@ -235,6 +289,12 @@ function uninstall() {
     }
   }
   if (!NO_LAUNCHD || REHEARSAL) for (const label of Object.values(LABELS)) if (fs.existsSync(plistPath(label))) { fs.rmSync(plistPath(label)); log(`已删除 ${plistPath(label)}`); }
+  const floatApp = FLOAT_APP();
+  if (fs.existsSync(floatApp)) {
+    run("pkill", ["-f", path.join(floatApp, "Contents", "MacOS", "AgentHub")]);
+    fs.rmSync(floatApp, { recursive: true, force: true });
+    log(`已删除桌面悬浮窗 ${floatApp}`);
+  }
   if (!NO_MCP) {
     if (cfg.claude) { const r = run(cfg.claude, ["mcp", "remove", "-s", "user", "agent-hub"]); log(r.status === 0 ? "Claude Code：已注销 agent-hub MCP" : "Claude Code：没有可注销的 agent-hub"); }
     if (cfg.agy) { const r = run(cfg.agy, ["mcp", "remove", "agent-hub"]); log(r.status === 0 ? "反重力：已注销 agent-hub MCP" : "反重力：没有可注销的 agent-hub"); }
@@ -280,6 +340,24 @@ async function open() {
   return 0;
 }
 
+function float() {
+  const app = FLOAT_APP();
+  const exe = path.join(app, "Contents", "MacOS", "AgentHub");
+  if (flag("--quit")) {
+    const r = run("pkill", ["-f", exe]);
+    log(r.status === 0 ? "悬浮窗已退出" : "悬浮窗没在运行");
+    return 0;
+  }
+  if (!fs.existsSync(exe)) {
+    console.error(`桌面悬浮窗还没装（${app} 不存在）。没有命令行工具时 install 会跳过它；装好 Xcode 命令行工具后重跑 agent-hub install。`);
+    return 1;
+  }
+  const r = run("open", [app]);
+  if (r.status !== 0) { console.error(`打开失败：${(r.stderr || r.stdout || "").trim()}`); return 1; }
+  log("悬浮窗已打开（收起后是桌面上一颗小球，右键有菜单）");
+  return 0;
+}
+
 function renew() {
   const dir = fs.existsSync(path.join(DEST, "desk.mjs")) ? DEST : SRC;
   const cfg = readConfig(HOME);
@@ -288,6 +366,6 @@ function renew() {
   return r.status ?? 1;
 }
 
-const commands = { install, update, uninstall, doctor, open, renew };
+const commands = { install, update, uninstall, doctor, open, renew, float };
 if (!commands[cmd]) { usage(); process.exit(cmd && cmd !== "help" && cmd !== "--help" ? 2 : 0); }
 process.exit((await commands[cmd]()) || 0);

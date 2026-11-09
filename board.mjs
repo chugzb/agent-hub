@@ -267,14 +267,23 @@ function modelFromKind(kind) {
   if (/Claude/i.test(k)) return "Claude";
   return "";
 }
-// 对话健康（health.mjs 写的 ~/agy-logs/presence/<员工>.health.json）：{state:"overflow"|"renewed"|"big"|"ok", at, old, new, mb}；文件没有或读坏了就当没有
+// 对话健康（health.mjs 写的 ~/agy-logs/presence/<员工>.health.json）：{state:"overflow"|"renewed"|"resumed"|"big"|"ok", at, old, new, mb, count, gaveUp}；文件没有或读坏了就当没有
 function healthOf(name) {
   const h = readJson(path.join(PRES, `${encodeURIComponent(name)}.health.json`));
   if (!h || typeof h.state !== "string") return null;
   const at = typeof h.at === "number" ? h.at : Date.parse(h.at) || 0;
   const until = typeof h.until === "string" && h.until ? h.until : "";
   // quota 带着「什么时候恢复」：until 是额度重置时间，recover 是给人看的本地时间
-  return { state: h.state, at, mb: typeof h.mb === "number" ? h.mb : null, from: h.from || "", model: h.model || "", until, recover: until ? clockText(until) : "" };
+  return { state: h.state, at, mb: typeof h.mb === "number" ? h.mb : null, from: h.from || "", model: h.model || "", until, recover: until ? clockText(until) : "",
+    count: typeof h.count === "number" ? h.count : 0, gaveUp: !!h.gaveUp };   // resumed：自动续上了几次、续满了还停
+}
+// 员工把活交给了反重力自带的子 agent、子 agent 还在跑（health.mjs 每 30 秒刷新 <员工>.sub.json）：员工本人停着，但活在干。
+// 文件超过 2 分钟没刷新就当没有（常驻停了，或子 agent 已经跑完）
+function subOf(name) {
+  const j = readJson(path.join(PRES, `${encodeURIComponent(name)}.sub.json`));
+  if (!j || !Array.isArray(j.running) || !j.running.length || !(Date.now() - (Number(j.at) || 0) < 120_000)) return null;
+  const said = clip(j.running.map((x) => x?.said).filter(Boolean).pop() || "", 100);
+  return { said, n: j.running.length };
 }
 function withTag(a, roles) {
   const r = roles[a.name] || {};
@@ -298,6 +307,15 @@ async function snapshot() {
     a.state = expired ? "idle" : "quota";
     a.doing = expired ? "" : h.recover ? `额度用完，${h.recover} 恢复` : "额度用完，等额度恢复";
     a.said = "";
+  }
+  // 有子 agent 在跑的反重力员工：算「在干活」，气泡写子 agent 最后一句，名牌旁标「子 agent」
+  for (const a of agents) {
+    if (!roles[a.name] || a.state !== "idle") continue;
+    const sub = subOf(a.name);
+    if (!sub) continue;
+    a.state = "working"; a.sub = true;
+    a.doing = sub.said ? `子 agent 在做：${sub.said}` : "子 agent 在做";
+    a.said = sub.n > 1 ? `${sub.n} 个子 agent` : "";
   }
   const order = { error: 0, stuck: 0, working: 1, waiting: 2, idle: 2, quota: 3, unknown: 3, offline: 4 };
   agents.sort((a, b) => (order[a.state] ?? 3) - (order[b.state] ?? 3) || (b.lastMove ?? 0) - (a.lastMove ?? 0));
@@ -356,6 +374,8 @@ const server = http.createServer(async (req, res) => {
     if (!timer && !computing) timer = setTimeout(loop, TICK_MS);
     return;
   }
+  // 桌面悬浮窗里的精简页：同一份数据流（/events），不是另算一套快照
+  if (url.pathname === "/mini") { res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }); return res.end(fs.readFileSync(new URL("./mini.html", import.meta.url), "utf8")); }
   const m = /^\/assets\/((?:cut\/)?[a-z0-9-]+\.(gif|webp|png))$/.exec(url.pathname);
   if (m) { try { const buf = fs.readFileSync(new URL(`./board-assets/${m[1]}`, import.meta.url)); res.writeHead(200, { "content-type": `image/${m[2]}`, "cache-control": "max-age=86400" }); return res.end(buf); } catch { res.writeHead(404); return res.end(); } }
   res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }); res.end(fs.readFileSync(new URL("./board.html", import.meta.url), "utf8"));

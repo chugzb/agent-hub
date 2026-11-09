@@ -224,6 +224,53 @@ export async function summaries() {
   return (await call("GetAllCascadeTrajectories", {})).data.trajectorySummaries ?? {};
 }
 
+/** 员工对话里 INVOKE_SUBAGENT 步骤交给的子 agent 对话号（invokeSubagent.results[].conversationId），去重，按先后 */
+export function subagentIds(steps) {
+  const out = [];
+  for (const st of steps ?? []) {
+    if (st.type !== "CORTEX_STEP_TYPE_INVOKE_SUBAGENT") continue;
+    for (const r of st.invokeSubagent?.results ?? []) if (r?.conversationId && !out.includes(r.conversationId)) out.push(r.conversationId);
+  }
+  return out;
+}
+
+/** 一个对话最近在做什么：最近一条有文字的回复；回复都是空的（光在调工具）就写最后一次工具调用的名字和主要参数 */
+export function lastActivity(steps) {
+  const n = steps?.length ?? 0;
+  for (let i = n - 1; i >= Math.max(0, n - 40); i--) {
+    const x = steps[i];
+    if (x.type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
+      const r = x.plannerResponse ?? {}; const t = String(r.response ?? r.modifiedResponse ?? "").trim();
+      if (t) return t;
+    }
+  }
+  for (let i = n - 1; i >= Math.max(0, n - 40); i--) {
+    const tc = steps[i].metadata?.toolCall;
+    if (!tc?.name) continue;
+    let a = {}; try { a = JSON.parse(tc.argumentsJson ?? "{}"); } catch { /* 参数不是 JSON 就只写工具名 */ }
+    const main = ["CommandLine", "TargetFile", "AbsolutePath", "Path", "Query", "toolSummary"].map((k) => a[k]).find((v) => typeof v === "string" && v) ?? Object.values(a).find((v) => typeof v === "string" && v) ?? "";
+    return `${tc.name}${main ? `：${String(main).replace(/\s+/g, " ").slice(0, 80)}` : ""}`;
+  }
+  return "";
+}
+
+/** 看一眼别的对话最近在做什么（给看板写「子 agent 在做：……」用）；对话不存在或读不出来返回空 */
+export async function peekReply(cascadeId) {
+  try {
+    const steps = (await call("GetCascadeTrajectory", { cascadeId })).data.trajectory?.steps ?? [];
+    return { steps: steps.length, said: lastActivity(steps) };
+  } catch { return { steps: 0, said: "" }; }
+}
+
+/** 最后一条 planner 回复（员工这一轮最后说的话）：text、发生时间、离最后一步隔几步（隔得远说明后面还有别的动静） */
+export function lastReply(steps) {
+  for (let i = (steps?.length ?? 0) - 1; i >= 0; i--) {
+    if (steps[i].type !== "CORTEX_STEP_TYPE_PLANNER_RESPONSE") continue;
+    const r = steps[i].plannerResponse ?? {};
+    return { lastReply: String(r.response ?? r.modifiedResponse ?? ""), lastReplyAt: steps[i].metadata?.createdAt ?? "", lastReplyFromEnd: steps.length - 1 - i };
+  }
+  return { lastReply: "", lastReplyAt: "", lastReplyFromEnd: -1 };
+}
 /**
  * 读一个对话：是不是撑爆了、未清理部分多大、最后一步是什么、最后一条报错写了什么、用的是哪个模型。
  * 会把整段对话拉下来（几十 MB），别高频调。
@@ -241,6 +288,8 @@ export async function inspect(cascadeId) {
     lastAt: last?.metadata?.createdAt ?? "",   // 最后一步（额度报错时就是报错那一步）发生在什么时候
     lastError: e ? String(e.shortError || e.modelErrorMessage || e.userErrorMessage || "") : "",
     lastModel: (t.generatorMetadata ?? []).map((x) => x.chatModel?.model).filter(Boolean).pop() ?? "",
+    ...lastReply(steps),
+    subagents: subagentIds(steps),   // 交给反重力自带子 agent 的对话号
   };
 }
 
@@ -282,6 +331,7 @@ export function pickLastTask(lines, role) {
   return {
     id: m.id, time: m.time, from: m.from, type: m.type, text: String(m.text ?? ""),
     doneAfter: mine.slice(idx + 1).some((x) => x.from === role && x.type === "done"),
+    helpAfter: mine.slice(idx + 1).some((x) => x.from === role && x.type === "help"),
     before: mine.slice(Math.max(0, idx - CONTEXT_N), idx).map(slim),
     after: mine.slice(idx + 1, idx + 1 + CONTEXT_N).map(slim),
   };
@@ -292,6 +342,10 @@ function readInboxLines() {
 }
 
 /** 最近给这个员工派活的是谁（额度用完时也要通知他），找不到返回空串 */
+/** 收件箱里发给这个员工的最后一条 task / reply（含 doneAfter、helpAfter），没有返回 null */
+export function lastTaskOf(role) {
+  try { return pickLastTask(readInboxLines(), role); } catch { return null; }
+}
 export function lastTaskFrom(role) {
   try { return pickLastTask(readInboxLines(), role)?.from ?? ""; } catch { return ""; }
 }

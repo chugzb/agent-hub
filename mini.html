@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>谁在干活</title>
+<style>
+/* 悬浮窗里的精简页：只列在干活 / 要处理的人，数据走 board.mjs 的 /events，不另算快照。
+   页面透明（背景是 macOS 的毛玻璃），高度自己报给小程序，宽度由窗口定。 */
+:root{color-scheme:light dark;--ink:#1d2430;--muted:#6b7380;--line:rgba(20,40,60,.10);
+  --work:#16a34a;--stuck:#dc2626;--off:#9aa3ad;--hover:rgba(20,40,60,.06);--attbg:rgba(220,38,38,.09);
+  font-family:-apple-system,"PingFang SC","Hiragino Sans GB",system-ui,sans-serif}
+@media (prefers-color-scheme:dark){:root{--ink:#eef1f5;--muted:#a3abb6;--line:rgba(255,255,255,.10);
+  --work:#34d17a;--stuck:#ff6b6b;--off:#8b93a0;--hover:rgba(255,255,255,.07);--attbg:rgba(255,107,107,.12)}}
+*{box-sizing:border-box}
+/* 背景跟网页看板的暖色地板一个调子（#ebb980 的淡版），底下仍是 macOS 的毛玻璃 */
+html,body{margin:0;background:transparent}
+@media (prefers-color-scheme:light){html{background:rgba(255,246,232,.66)}}
+body{color:var(--ink);font-size:12.5px;-webkit-user-select:none;user-select:none;overflow:hidden}
+.sum{display:flex;align-items:center;gap:2px;flex-wrap:wrap;padding:7px 10px 6px;border-bottom:1px solid var(--line);font-size:12px}
+.sum span{white-space:nowrap}
+.sum b{font-variant-numeric:tabular-nums;margin-left:3px;font-weight:700}
+.sum b.w{color:var(--work)}.sum b.a{color:var(--stuck)}.sum b.q{color:var(--off)}
+.sum i{color:var(--muted);font-style:normal;padding:0 2px}
+.list{max-height:420px;overflow-y:auto;overscroll-behavior:contain;padding:4px 6px 6px}
+.row{display:flex;align-items:center;gap:6px;padding:5px 5px;border-radius:8px;color:inherit;text-decoration:none}
+.row:hover{background:var(--hover)}
+.row.att{background:var(--attbg)}
+.row img{width:18px;height:18px;border-radius:50%;object-fit:contain;flex:none}
+.nm{font-weight:600;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none}
+.row.att .nm{color:var(--stuck)}
+.tool{color:#fff;border-radius:999px;padding:0 5px;font-size:10.5px;line-height:15px;font-weight:600;flex:none}
+.t-cc{background:#c96442}.t-agy{background:#3b6fd8}.t-dv{background:#13795b}.t-cx{background:#111827}.t-tm{background:#6b7280}
+.do{flex:1;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.row.att .do{color:var(--stuck);opacity:.85}
+.hm{flex:none;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+.empty{color:var(--muted);text-align:center;padding:18px 0 20px}
+</style>
+</head>
+<body>
+<div class="sum"><span>在干活<b class="w" id="nW">0</b></span><i>·</i><span>要处理<b class="a" id="nA">0</b></span><i>·</i><span>没额度<b class="q" id="nQ">0</b></span><i>·</i><span>歇着<b id="nI">0</b></span></div>
+<div class="list" id="list"><div class="empty">连接中…</div></div>
+<script>
+/* 跟 board.html 同一套判断：工具、模型 → 头像，stateOf 把「对话撑爆」算成卡住 */
+const $ = (id) => document.getElementById(id);
+const AV = new Set(["claude", "deepseek", "gemini", "devin", "codex", "kiro", "cursor"]);
+const TOOLS = { "Claude Code": "cc", "反重力": "agy", "Devin": "dv", "Codex": "cx", "终端": "tm" };
+const SHORT = { "Claude Code": "CC", "反重力": "反重力", "Devin": "Devin", "Codex": "Codex", "终端": "终端" };
+const TOOL_SAY = { Bash: "在跑命令", Read: "在看文件", Grep: "在搜代码", Glob: "在找文件", Edit: "在改文件", MultiEdit: "在改文件", Write: "在写文件", NotebookEdit: "在改文件",
+  WebFetch: "在看网页", WebSearch: "在搜网页", Task: "在派子任务", Agent: "在派子任务", TodoWrite: "在列待办", SendMessage: "在发消息" };
+
+function toolOf(a) {
+  if (TOOLS[a.tool]) return a.tool;
+  const k = String(a.kind || "");
+  return /^反重力/.test(k) ? "反重力" : /^Devin/.test(k) ? "Devin" : /^Codex/.test(k) ? "Codex" : /^终端/.test(k) ? "终端" : "Claude Code";
+}
+function rawModel(a) {
+  if (a.model) return a.model;
+  const k = String(a.kind || ""), dv = /^Devin · (.+)$/.exec(k);
+  return dv ? dv[1] : /DeepSeek/i.test(k) ? "DeepSeek" : /Gemini/i.test(k) ? "Gemini" : /Claude/i.test(k) ? "Claude" : "";
+}
+function avatarOf(a, tool, model) {
+  const m = String(model || "").toLowerCase();
+  if (/claude|opus|sonnet|haiku/.test(m)) return "claude";
+  if (/gpt|codex|\bo\d/.test(m)) return "codex";
+  if (/gemini/.test(m)) return "gemini";
+  if (/deepseek/.test(m)) return "deepseek";
+  if (tool === "Devin") return "devin";
+  if (tool === "Codex") return "codex";
+  return AV.has(a.avatar) ? a.avatar : "claude";
+}
+function jobOf(doing) {
+  let text = String(doing || "").trim();
+  const assigned = /^(\S+)\s*派的[：:]\s*([\s\S]*)$/.exec(text);
+  if (assigned) text = assigned[2].replace(/^【[^】]*】\s*/, "").trim();
+  const send = /^SendMessage\s*→\s*(.+)$/.exec(text);
+  if (send) return `给 ${send[1].trim()} 发消息`;
+  const tool = /^([A-Za-z][\w.-]*)[：:]\s*(.+)$/.exec(text);
+  if (tool) return tool[2].trim();
+  if (/^[A-Za-z][\w.-]*$/.test(text)) return TOOL_SAY[text] || (/^mcp__/.test(text) ? "在调工具" : "在跑命令");
+  return text;
+}
+function ago(ms) {
+  if (!ms) return ""; const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 60) return "刚刚"; if (s < 3600) return `${Math.floor(s / 60)} 分钟`; if (s < 86400) return `${Math.floor(s / 3600)} 小时`; return `${Math.floor(s / 86400)} 天`;
+}
+const stateOf = (a) => (a.health?.state === "overflow" ? "stuck" : ["working", "stuck", "error", "offline", "waiting", "unknown", "quota"].includes(a.state) ? a.state : "idle");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/* 给小程序用：右上角人数、要不要变红、高度 */
+function post(name, v) { try { window.webkit?.messageHandlers?.[name]?.postMessage(v); } catch {} }
+/* 量内容真实高度：documentElement.scrollHeight 不会小于视口，而视口又跟着上报的高度走，会越报越高 */
+function reportHeight() {
+  const sum = document.querySelector(".sum"), list = $("list");
+  if (!list) return;
+  post("height", Math.ceil((sum ? sum.offsetHeight : 0) + list.offsetHeight));
+}
+window.__miniStats = { work: 0, att: 0, quota: 0, idle: 0, offline: false };
+
+function rowHTML(a) {
+  const tool = toolOf(a), av = avatarOf(a, tool, rawModel(a));
+  const att = a.st === "stuck" || a.st === "error";
+  const text = a.st === "error" ? "出错了，等处理" : a.st === "stuck" ? `卡住了：${jobOf(a.doing) || "15 分钟没动静"}` : jobOf(a.doing) || "在想…";
+  const dur = a.st === "working" ? (a.since ? `已干 ${ago(a.since)}` : "") : att ? `卡了 ${ago(a.since || a.lastMove)}` : "";
+  const href = `${location.origin}/#who=${encodeURIComponent(a.name)}`;
+  return `<a class="row${att ? " att" : ""}" href="${esc(href)}" target="_blank" rel="noreferrer" title="${esc(`${a.name} · ${tool}${a.model ? ` · ${a.model}` : ""}`)}">`
+    + `<img src="/assets/cut/${esc(av)}-working.webp" alt="">`
+    + `<span class="nm">${esc(a.name)}</span>`
+    + `<span class="tool t-${TOOLS[tool]}">${esc(SHORT[tool])}</span>`
+    + `<span class="do">${esc(text)}</span>`
+    + `<span class="hm">${esc(dur)}</span></a>`;
+}
+
+let last = null;
+function render(d) {
+  last = d;
+  const ag = d.agents.map((a) => ({ ...a, st: stateOf(a) }));
+  const work = ag.filter((a) => a.st === "working");
+  const att = ag.filter((a) => a.st === "stuck" || a.st === "error");
+  const quota = ag.filter((a) => a.st === "quota");
+  const idle = ag.filter((a) => a.st === "idle");
+  $("nW").textContent = work.length;
+  $("nA").textContent = att.length;
+  $("nQ").textContent = quota.length;
+  $("nI").textContent = idle.length;
+  // 要处理排最前（红色），其余在干活的按开工先后排，等得久的在上面
+  const rows = [...att.sort((x, y) => (x.since || x.lastMove || 0) - (y.since || y.lastMove || 0)),
+    ...work.sort((x, y) => (x.since || 0) - (y.since || 0))];
+  $("list").innerHTML = rows.length ? rows.map(rowHTML).join("") : `<div class="empty">都在歇着</div>`;
+  window.__miniStats = { work: work.length, att: att.length, quota: quota.length, idle: idle.length, offline: window.__miniStats.offline };
+  reportHeight();
+}
+
+function connect() {
+  const es = new EventSource("/events");
+  es.onmessage = (e) => { window.__miniStats.offline = false; render(JSON.parse(e.data)); };
+  es.onerror = () => {
+    window.__miniStats.offline = true;
+    $("list").innerHTML = `<div class="empty">连接断了，正在重连…</div>`;
+    reportHeight();
+    es.close(); setTimeout(connect, 3000);
+  };
+}
+if (window.ResizeObserver) new ResizeObserver(reportHeight).observe(document.body);
+setInterval(() => { if (last) render(last); }, 30000);   // 「已干多久」靠本地重画
+connect();
+</script>
+</body>
+</html>

@@ -64,7 +64,7 @@ h1{margin:0;font-size:18px;font-weight:700;margin-right:4px}
 .off .tag{opacity:.6}
 /* 对话健康小标：刚换过对话（绿）、对话快满（琥珀）、额度用完（灰，带恢复时间） */
 .hb{display:none;padding:0 .55em;font-weight:700;flex:none}
-.hb.renewed,.hb.big,.hb.quota{display:block}.tag:has(.hb.renewed),.tag:has(.hb.big){max-width:max(170px,calc(var(--u) * 26))}.hb.renewed{background:#dcfce7;color:#15803d}.hb.big{background:#f59e0b;color:#fff}.hb.quota{background:#eef1f4;color:#5b6472}
+.hb.renewed,.hb.big,.hb.quota,.hb.resumed,.hb.sub{display:block}.tag:has(.hb.renewed),.tag:has(.hb.big),.tag:has(.hb.resumed),.tag:has(.hb.sub){max-width:max(170px,calc(var(--u) * 26))}.hb.sub{background:#ede9fe;color:#6d28d9}.hb.renewed{background:#dcfce7;color:#15803d}.hb.resumed{background:#dbeafe;color:#1d4ed8}.hb.big{background:#f59e0b;color:#fff}.hb.quota{background:#eef1f4;color:#5b6472}
 .tag:has(.hb.quota){max-width:max(250px,calc(var(--u) * 36))}
 /* 状态小标：等会话（琥珀）、状态未知（灰）；这两种都不算歇着 */
 .sb{display:none;padding:0 .55em;font-weight:700;flex:none}
@@ -131,6 +131,7 @@ h1{margin:0;font-size:18px;font-weight:700;margin-right:4px}
   <span class="pill w">在干活<b id="nW">0</b></span><span class="pill" id="pI">歇着<b id="nI">0</b></span><span class="pill q" id="pQ">没额度<b id="nQ">0</b></span><span class="pill s">要处理<b id="nS">0</b></span><span class="pill o" id="pO">不在<b id="nO">0</b></span>
   <button class="chip" id="fTeam" aria-pressed="false">只看员工</button>
   <button class="chip" id="fMsg" aria-pressed="true">消息往来</button>
+  <button class="chip" id="fWho" aria-pressed="false" title="取消只看这个人" hidden></button>
   <span class="upd" id="upd">连接中…</span>
 </div>
 <div class="layout">
@@ -220,10 +221,12 @@ function ago(ms) {
   if (s < 60) return "刚刚"; if (s < 3600) return `${Math.floor(s / 60)} 分钟`; if (s < 86400) return `${Math.floor(s / 3600)} 小时`; return `${Math.floor(s / 86400)} 天`;
 }
 const RENEWED_SHOW_MS = 30 * 60_000;
-/* 对话健康：overflow（对话撑爆）当卡住；renewed 30 分钟内标「刚换对话」；big 标「对话快满」；
+/* 对话健康：overflow（对话撑爆）当卡住；renewed 30 分钟内标「刚换对话」；resumed（话说一半收工、被自动叫醒）30 分钟内标「自动续上」；有子 agent 在跑标「子 agent」；big 标「对话快满」；
    quota（额度用完、备用也没额度）标「额度用完 · HH:MM 恢复」，人放待命区、图灰度 60% */
-const healthBadge = (h, st) => (h?.state === "quota" && st === "quota" ? ["quota", `额度用完${h.recover ? ` · ${h.recover} 恢复` : ""}`]
-  : h?.state === "renewed" && Date.now() - (h.at || 0) < RENEWED_SHOW_MS ? ["renewed", "刚换对话"] : h?.state === "big" ? ["big", "对话快满"] : null);
+const healthBadge = (h, st, sub) => (h?.state === "quota" && st === "quota" ? ["quota", `额度用完${h.recover ? ` · ${h.recover} 恢复` : ""}`]
+  : h?.state === "renewed" && Date.now() - (h.at || 0) < RENEWED_SHOW_MS ? ["renewed", "刚换对话"]
+  : h?.state === "resumed" && Date.now() - (h.at || 0) < RENEWED_SHOW_MS ? ["resumed", h.gaveUp ? "续了仍停" : h.count > 1 ? `自动续上 ×${h.count}` : "自动续上"]
+  : h?.state === "big" ? ["big", "对话快满"] : sub ? ["sub", "子 agent"] : null);
 const stateOf = (a) => (a.health?.state === "overflow" ? "stuck" : ["working", "stuck", "error", "offline", "waiting", "unknown", "quota"].includes(a.state) ? a.state : "idle");
 const setText = (el, text) => { if (el.textContent !== text) el.textContent = text; };
 const setStyle = (el, k, v) => { if (el.style[k] !== v) el.style[k] = v; };
@@ -265,11 +268,13 @@ function assignDesks(workers) {
   }
 }
 
-let onlyTeam = false, last = null, list = [];
+let onlyTeam = false, onlyWho = "", last = null, list = [];
 function render(d) {
   last = d;
   let ag = d.agents.map((a) => ({ ...a, st: stateOf(a) }));
   if (onlyTeam) ag = ag.filter((a) => !/VS Code/.test(a.kind) || /-master$/.test(a.name));
+  if (onlyWho) ag = ag.filter((a) => a.name === onlyWho);   // 悬浮窗点人进来：#who=<名字>
+
   list = ag.map((a) => {
     const tool = toolOf(a), raw = rawModel(a), av = avatarOf(a, tool, raw);
     return { ...a, tool, model: prettyModel(raw) || (tool === "Claude Code" ? "Claude" : ""), av, group: groupOf(a, tool, av), zone: a.st === "working" || a.st === "stuck" || a.st === "error" ? "work" : "wait" };
@@ -292,12 +297,12 @@ function render(d) {
     const job = a.st === "error" ? { text: String(a.doing || "").trim(), from: "" } : jobOf(a.doing);
     const overflow = a.health?.state === "overflow";
     setText(el.querySelector(".bubble"), overflow ? "对话撑爆，正在换新对话" : a.st === "error" ? (job.text || "对话报错停下了") : a.st === "stuck" ? `卡住了：${job.text || "15 分钟没动静"}` : a.st === "working" ? (job.text || "在想…") : a.st === "quota" ? (a.health?.recover ? `额度用完，${a.health.recover} 恢复` : "额度用完，等额度恢复") : "");
-    const badge = healthBadge(a.health, a.st), hb = el.querySelector(".hb");
+    const badge = healthBadge(a.health, a.st, a.sub), hb = el.querySelector(".hb");
     setText(hb, badge ? badge[1] : ""); const hc = `hb${badge ? ` ${badge[0]}` : ""}`; if (hb.className !== hc) hb.className = hc;
     const sb = el.querySelector(".sb"); setText(sb, a.st === "waiting" ? "等会话" : a.st === "unknown" ? "状态未知" : "");
     const status = overflow ? "对话撑爆，正在换新对话" : a.st === "offline" ? "不在" : a.st === "working" ? `在干活，已干 ${ago(a.since)}` : a.st === "stuck" ? "卡住了" : a.st === "error" ? "出错了，等处理" : a.st === "quota" ? (a.health?.recover ? `额度用完，${a.health.recover} 恢复` : "额度用完，等额度恢复") : a.st === "waiting" ? "在等会话" : a.st === "unknown" ? "状态未知" : "歇着";
     const tip = [`${a.name} · ${a.tool}${a.model ? ` · ${a.model}` : ""}`, a.kind, status, a.st !== "working" && a.lastMove ? `${ago(a.lastMove)}前动过` : "",
-      a.health?.state === "big" && a.health.mb ? `对话已有约 ${a.health.mb}MB` : "", job.from && `派活人：${job.from}`, job.text, a.said, a.where].filter(Boolean).join("\n");
+      a.health?.state === "big" && a.health.mb ? `对话已有约 ${a.health.mb}MB` : "", a.health?.state === "resumed" && Date.now() - (a.health.at || 0) < RENEWED_SHOW_MS ? (a.health.gaveUp ? `话说一半就收工，自动续了 ${a.health.count} 次还是停，已通知派活人` : `话说一半就收工，已自动叫醒续上（第 ${a.health.count} 次）`) : "", job.from && `派活人：${job.from}`, job.text, a.said, a.where].filter(Boolean).join("\n");
     if (el.title !== tip) el.title = tip;
   }
   for (const [name, el] of people) if (!seen.has(name)) { el.remove(); people.delete(name); }
@@ -610,6 +615,22 @@ function filterWho(n) {
 }
 $("whoX").onclick = () => filterWho("");
 scene.addEventListener("click", (e) => { const p = e.target.closest(".p"); const n = p && p.querySelector(".fn")?.textContent; if (n) filterWho(n); });
+
+/* 只看一个人：悬浮窗（/mini）点人时带 #who=<名字> 打开完整看板。
+   跟 filterWho 不同，这个是筛场景里的人，消息栏跟着筛同一个人。 */
+function whoFromHash() { try { return decodeURIComponent(/^#who=(.+)$/.exec(location.hash)?.[1] || ""); } catch { return ""; } }
+function setOnlyWho(n, syncHash = true) {
+  onlyWho = n || "";
+  $("fWho").hidden = !onlyWho;
+  $("fWho").textContent = onlyWho ? `只看 ${onlyWho}` : "";
+  $("fWho").setAttribute("aria-pressed", String(!!onlyWho));
+  if (syncHash) { try { history.replaceState(null, "", onlyWho ? `#who=${encodeURIComponent(onlyWho)}` : location.pathname + location.search); } catch {} }
+  if (onlyWho) filterWho(onlyWho); else filterWho("");
+  if (last) render(last);
+}
+$("fWho").onclick = () => setOnlyWho("");
+addEventListener("hashchange", () => setOnlyWho(whoFromHash(), false));
+setOnlyWho(whoFromHash(), false);
 
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 $("fTeam").onclick = (e) => { onlyTeam = !onlyTeam; e.currentTarget.setAttribute("aria-pressed", onlyTeam); last && render(last); };
