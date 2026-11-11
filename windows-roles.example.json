@@ -1,0 +1,7 @@
+{
+  "codex1": { "name": "Codex worker", "kind": "codex", "effort": "high" },
+  "kiro1": { "name": "Kiro worker", "kind": "kiro", "agent": "default" },
+  "cursor1": { "name": "Cursor worker", "kind": "cursor", "add_dirs": [] },
+  "deepseek1": { "name": "DeepSeek worker", "kind": "claude-ds", "model": "deepseek-flash" },
+  "client1": { "name": "Codex app", "kind": "codex-app" }
+}

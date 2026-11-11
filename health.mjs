@@ -379,6 +379,7 @@ export async function checkRole(role, id, S, deps = {}) {
 let running = false;
 /** bridges.mjs 每 30 秒调一次；上一轮还没跑完就跳过 */
 export async function healthTick(log = () => {}) {
+  if (process.platform === "win32") return (await import("./windows-health.mjs")).windowsHealth();
   if (running) return;
   running = true;
   try {

@@ -6,7 +6,95 @@ Claude Code、Antigravity（反重力）、Codex、Devin、tmux 里的终端 age
 
 ![看板](docs/screenshot.png)
 
-> macOS 专用，零依赖（只用 Node 自带模块），只监听本机，不联网。
+> 支持 macOS 和 Windows，零依赖（只用 Node 自带模块），看板只监听本机。Windows 用法见下文。
+
+## Windows
+
+需要 Node.js 18+、Windows PowerShell 5.1，以及要使用的 agent CLI。macOS 原有入口、launchd 和桌面桥保留；Windows 通过平台判断进入独立实现，不需要 tmux、zsh 或 WSL。
+
+在下载的代码目录打开 PowerShell：
+
+```powershell
+node .\cli.mjs install
+$hub = Join-Path $env:USERPROFILE '.local\share\agent-hub'
+node "$hub\cli.mjs" doctor --no-services
+node "$hub\cli.mjs" services
+```
+
+安装只复制程序并在员工表不存在时生成通用示例，不改已有员工表、不注册 MCP、不启动常驻、不注册自启。`--home <目录>` 可用于隔离安装和运行；后续命令也要传同一个 `--home`，或设置 `HUB_HOME`。源码也能直接运行。Windows 请使用 `node cli.mjs` / `node bin/agy-*.mjs`，无扩展名的 shell 命令供 macOS 使用。
+
+员工表默认在 `~/.config/agy-team/roles.json`，示例见 [windows-roles.example.json](windows-roles.example.json)。支持 `codex`、`kiro`、`cursor`、`claude-ds`、`codex-app`；员工号可自行命名，模型用 `model`、推理强度用 `effort`、Kiro agent 用 `agent`，Cursor 额外工作目录用 `add_dirs` 数组。`disabled: true` 阻止 CLI、MCP 和后台续跑派活，`disabledReason` 可写原因。Codex app 对话通过员工侧 MCP 的 `wait_for_task` 收任务。
+
+Codex、Kiro 和 Cursor 需要先在各自 CLI 完成登录。派活会运行具有工具权限的 CLI，请只接收可信主控的任务。Claude + DeepSeek 使用独立子进程环境和配置目录，不改共享 Claude 设置；默认读取 `~/.config/agent-hub/deepseek.env` 的 `DEEPSEEK_API_KEY` 配置。该文件由用户自行创建，勿放进仓库。可选系统规则文件为 `~/.config/agy-team/ds-rules.md`。
+
+MCP 主控侧示例（替换 `<you>` 和安装路径；员工侧将 `HUB_SIDE` 改为 `employee`）：
+
+```json
+{
+  "mcpServers": {
+    "agent-hub": {
+      "command": "node",
+      "args": ["C:\\Users\\<you>\\.local\\share\\agent-hub\\server.mjs"],
+      "env": { "HUB_SIDE": "master" }
+    }
+  }
+}
+```
+
+未直接登记 MCP 的 CLI 仍可用任务提示里的 `agy-reply.mjs` / `agy-read.mjs` 联络主控。
+
+| 环境变量 | 默认 / 用途 |
+| --- | --- |
+| `HUB_HOME` | 当前用户 home；Windows 入口也接受 `--home` |
+| `HUB_DIR` | `~/agy-logs`，收件箱、状态与日志 |
+| `HUB_ROLES` | `~/.config/agy-team/roles.json` |
+| `HUB_JOBS` | `~/.local/share/agent-hub/jobs`，任务目录 |
+| `HUB_PREAMBLE_FILE` | 不设置则无额外规则；设置后把 UTF-8 文件拼在每单 PROMPT 开头 |
+| `HUB_KIRO_EXE` | `%LOCALAPPDATA%/Kiro-Cli/kiro-cli.exe`，其次从 PATH 找 |
+| `HUB_KIRO_SCRIPT` | 包内 `bin/hub-kiro.ps1`，可换启动适配脚本 |
+| `HUB_CURSOR_CMD` | `%LOCALAPPDATA%/cursor-agent/agent.cmd` |
+| `HUB_CURSOR_RULES_FILE` | 可选 Cursor 规则文件 |
+| `HUB_NPM_CACHE` | `~/.cache/agent-hub/npm`，子进程 npm 缓存 |
+| `DEEPSEEK_ENV_FILE` | `~/.config/agent-hub/deepseek.env` |
+| `HUB_DEEPSEEK_BASE_URL` | 默认 DeepSeek 的 Anthropic 兼容端点，可换兼容服务 |
+| `HUB_MASTER_SESSION` | 主控会话名或正则；默认名称包含 `主控` 或 `master`，忽略英文大小写 |
+| `HUB_ARCHIVE_PAUSED` | `1` 暂停归档；`HUB_DIR/ARCHIVE_PAUSED` 文件也有同样作用 |
+| `BOARD_PORT` | `4646`，看板端口；悬浮窗用 `-Port` 指定相同端口 |
+| `HUB_SIDE` / `HUB_ME` | MCP 主控或员工身份 / 员工号 |
+
+启动方式：
+
+```powershell
+# 前台常驻：看板、健康检查与每小时归档
+node "$hub\cli.mjs" services
+# 隐藏启动 / 只停止同一安装和 home 的进程树
+powershell -NoProfile -ExecutionPolicy Bypass -File "$hub\start-services.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "$hub\stop-services.ps1"
+# WPF 悬浮窗，读取同一看板的统一汇总
+powershell -NoProfile -ExecutionPolicy Bypass -File "$hub\start-float.ps1"
+# 原生桥可单独运行
+node "$hub\bin\hub-bridge.mjs"
+# 登录自启：只生成服务、原生桥、悬浮窗三个快捷方式
+powershell -NoProfile -ExecutionPolicy Bypass -File "$hub\install-startup.ps1"
+```
+
+看板在 `http://127.0.0.1:4646`，浏览器和悬浮窗共用 `/api/float` 的额度、登录异常、求助和忙闲汇总。`BOARD_DEMO=1` 保留上游演示模式。归档使用短期写锁和游标恢复记录；暂停文件删掉后恢复后续归档。切换程序时先暂停归档，等使用旧游标实现的 MCP 客户端全部重连后再恢复。
+
+`install-startup.ps1` 接受 `-HomeDir` 和 `-StartupDir`，不立即运行程序。计划任务入口 `register-logon-task.ps1` 与 `register-float-logon-task.ps1` 仅供可选使用；无需同时安装两种自启。移除自启时删除对应快捷方式或计划任务即可。
+
+### Windows 原生桥
+
+`bin/hub-bridge.mjs` 把启用的 CLI 员工登记为本地 Claude Code 会话，用命名管道收消息；每个员工的轻量占位进程提供真实 PID 和 Windows FILETIME。主控消息按忙闲派单，其他会话的消息留在收件箱；员工 `done` / `help` / `progress` 推回会话。停用员工会撤销登记，退出时只清理桥自己的文件和进程。保留单实例锁、过期登记清理、最近联络会话路由、归档后去重与半行等待。
+
+登记和消息格式按 Claude Code **2.1.319** 实测：`sessions/<pid>.json`、`<pid>.<sha256(小写管道路径)>.key`、`procStart=FILETIME`。这是非公开接口，Claude Code 升级可能使桥失效。无法推送时消息仍留在共享收件箱，退回 MCP `read_messages` / CLI `agy-read.mjs`；这不表示新版接口兼容性已自动验证。`--once <员工号>` 可仅登记一个员工进行调试。
+
+### Windows 测试
+
+```powershell
+node --test --test-concurrency=2
+```
+
+派活和续跑测试用临时 home 与假 CLI，不调用付费模型。保留上游原断言：上游原样在 Windows 的基线为 67/77，10 项失败包括 4 项依赖 POSIX 假命令、5 项 macOS 主控身份与桥测试，以及 1 项时区断言。此分支在 Windows 实测 103 项：94 通过、9 项原有失败、无新增失败；26 项新增 Windows 测试全部通过，原有「没有会话登记时退回主控」用例已通过。macOS 原生桌面和真实模型登录需在相应环境另行验证。
 
 ## 解决什么问题
 
