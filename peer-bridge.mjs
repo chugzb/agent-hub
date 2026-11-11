@@ -22,7 +22,7 @@ const sessDir = path.join(os.homedir(), ".claude", "sessions");
 const inbox = path.join(os.homedir(), "agy-logs", "inbox.jsonl");
 const HUB = path.join(path.dirname(new URL(import.meta.url).pathname), "server.mjs");
 const ROLES = path.join(os.homedir(), ".config", "agy-team", "roles.json");
-const desktopRoles = () => { try { return new Set(Object.entries(JSON.parse(fs.readFileSync(ROLES, "utf8"))).filter(([, r]) => ["desktop", "codex", "devin", "tmux"].includes(r.kind)).map(([k]) => k)); } catch { return new Set(); } };
+const desktopRoles = () => { try { return new Set(Object.entries(JSON.parse(fs.readFileSync(ROLES, "utf8"))).filter(([, r]) => ["desktop", "codex", "devin", "cursor", "tmux"].includes(r.kind)).map(([k]) => k)); } catch { return new Set(); } };
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 const procStart = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { env: { ...process.env, TZ: "UTC" } }).toString().trim();

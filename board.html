@@ -60,7 +60,7 @@ h1{margin:0;font-size:18px;font-weight:700;margin-right:4px}
 .nm .sn{display:none}
 .off .nm::after{content:"不在";color:var(--off);font-weight:500;margin-left:.3em}
 .tool{color:#fff;padding:0 .6em;font-weight:600;flex:none}
-.t-cc{background:#c96442}.t-agy{background:#3b6fd8}.t-dv{background:#13795b}.t-cx{background:#111827}.t-tm{background:#6b7280}
+.t-cc{background:#c96442}.t-agy{background:#3b6fd8}.t-agc{background:#7c4dce}.t-dv{background:#13795b}.t-cx{background:#111827}.t-cu{background:#2d2d2d}.t-tm{background:#6b7280}
 .off .tag{opacity:.6}
 /* 对话健康小标：刚换过对话（绿）、对话快满（琥珀）、额度用完（灰，带恢复时间） */
 .hb{display:none;padding:0 .55em;font-weight:700;flex:none}
@@ -146,8 +146,8 @@ h1{margin:0;font-size:18px;font-weight:700;margin-right:4px}
 const $ = (id) => document.getElementById(id);
 const AV = new Set(["claude", "deepseek", "gemini", "devin", "codex", "kiro", "cursor"]);
 const ASPECT = 2048 / 1360;                         // 背景图比例
-const GROUPS = ["主控", "反重力", "DeepSeek", "Devin · Codex", "其他会话"];
-const TOOLS = { "Claude Code": "cc", "反重力": "agy", "Devin": "dv", "Codex": "cx", "终端": "tm" };
+const GROUPS = ["主控", "反重力", "反重力 CLI", "DeepSeek", "Devin · Codex · Cursor", "其他会话"];
+const TOOLS = { "Claude Code": "cc", "反重力": "agy", "反重力 CLI": "agc", "Devin": "dv", "Codex": "cx", "Cursor": "cu", "终端": "tm" };
 const WORK_SCALE = 1.3;                             // 在干活的人比待命区的人大这么多
 
 const shortName = (n) => n.replace(/-master$/, "");
@@ -158,7 +158,7 @@ function toolOf(a) {
   if (a.windowsMapped && ["Kiro", "Cursor"].includes(a.tool)) return a.tool;
   if (TOOLS[a.tool]) return a.tool;
   const k = String(a.kind || "");
-  return /^反重力/.test(k) ? "反重力" : /^Devin/.test(k) ? "Devin" : /^Codex/.test(k) ? "Codex" : /^终端/.test(k) ? "终端" : "Claude Code";
+  return /^反重力 CLI/.test(k) ? "反重力 CLI" : /^反重力/.test(k) ? "反重力" : /^Devin/.test(k) ? "Devin" : /^Codex/.test(k) ? "Codex" : /^Cursor/.test(k) ? "Cursor" : /^终端/.test(k) ? "终端" : "Claude Code";
 }
 function rawModel(a) {
   if (a.model) return a.model;
@@ -183,6 +183,7 @@ function prettyModel(m) {
 function avatarOf(a, tool, model) {
   if (a.windowsMapped && AV.has(a.avatar)) return a.avatar;
   const m = model.toLowerCase();
+  if (tool === "Cursor" || /composer|grok/.test(m)) return "cursor"; // 11-10：Cursor 员工用自己的头，不管跑的是哪个模型
   if (/claude|opus|sonnet|haiku/.test(m)) return "claude";
   if (/gpt|codex|\bo\d/.test(m)) return "codex";
   if (/gemini/.test(m)) return "gemini";
@@ -198,8 +199,9 @@ function groupOf(a, tool, av) {
   if (tool === "Claude Code" && /-master$/.test(a.name)) return "主控";
   if (av === "deepseek" || /DeepSeek/i.test(k)) return "DeepSeek";
   if (/未登记|手动|后台/.test(k)) return "其他会话";
+  if (tool === "反重力 CLI") return "反重力 CLI";
   if (tool === "反重力") return "反重力";
-  if (tool === "Devin" || tool === "Codex") return "Devin · Codex";
+  if (tool === "Devin" || tool === "Codex" || tool === "Cursor") return "Devin · Codex · Cursor";
   return "其他会话";
 }
 

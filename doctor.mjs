@@ -137,11 +137,11 @@ async function checkPeers() {
   const sess = `${H}/.claude/sessions`;
   let roles = {}; try { roles = JSON.parse(readFileSync(`${H}/.config/agy-team/roles.json`, "utf8")); } catch {}
   // 员工类型需要的本机工具：没装的类型标「没装，跳过」，不算失败（desktop 靠反重力桌面端本身，不需要命令行）
-  const needTool = { codex: "codex", devin: "devin", tmux: "tmux" };
+  const needTool = { codex: "codex", devin: "devin", cursor: "cursor-agent", tmux: "tmux" };
   const have = (kind) => !needTool[kind] || !!effective(needTool[kind]);
   const bridged = [];
   for (const [k, r] of Object.entries(roles)) {
-    if (!["desktop", "codex", "devin", "tmux"].includes(r.kind)) continue;
+    if (!["desktop", "codex", "devin", "cursor", "tmux"].includes(r.kind)) continue;
     if (have(r.kind)) bridged.push(k);
     else ok(S, `${k} 在 ListAgents 里`, true, `没装，跳过（${r.kind} 没找到，装好后重跑 agent-hub install）`);
   }

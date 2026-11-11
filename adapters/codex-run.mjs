@@ -96,8 +96,34 @@ function runDevinOnce(prompt, model) {
   });
 }
 
+
+// 11-10：Cursor 员工（kind=cursor）：cursor-agent -p 接着它的会话跑一轮，json 结果里的 result 就是回复；每轮用量记进 ~/agy-logs/cursor-usage.jsonl
+const CURSOR = toolPath("cursor-agent", "CURSOR_AGENT_BIN");
+function runCursor(prompt, model) {
+  const r = role(); const cwd = r.cwd || HOME; const m = model || r.model || "composer-2.5";
+  const args = ["-p", prompt, "--output-format", "json", "--model", m, "--trust", "--force", "--workspace", cwd, "--sandbox", r.sandbox || "disabled"];
+  if (r.session) args.push("--resume", r.session);
+  return new Promise((resolve) => {
+    // 11-10：Cursor 自带 Node 26，员工跑命令时会用它，编出来的原生模块（better-sqlite3）别人用 Node 24 就挂。把适配器自己的 Node 24 排到 PATH 最前面
+    const env = { ...process.env, PATH: `${path.dirname(process.execPath)}:${process.env.PATH || ""}` };
+    const p = spawn(CURSOR, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    let out = "", err = "";
+    p.stdout.on("data", (d) => { out += d; presence("working", { since: START }); });
+    p.stderr.on("data", (d) => { err += d; fs.appendFileSync(logFile, d); });
+    p.on("close", (code) => {
+      fs.appendFileSync(logFile, out + "\n");
+      let res = null;
+      for (const line of out.split("\n").reverse()) { try { const d = JSON.parse(line); if (d.type === "result") { res = d; break; } } catch {} }
+      if (res?.session_id && !role().session) { const all = roles(); all[ROLE] = { ...all[ROLE], session: res.session_id }; fs.writeFileSync(ROLES, JSON.stringify(all, null, 2)); log(`记下会话 ${res.session_id}`); }
+      if (res) fs.appendFileSync(path.join(DIR, "cursor-usage.jsonl"), JSON.stringify({ time: new Date().toISOString(), role: ROLE, model: m, ms: res.duration_ms, ok: !res.is_error, ...res.usage }) + "\n");
+      resolve({ code, text: (res?.result || "").trim(), raw: out + err });
+    });
+  });
+}
+
 function runCodex(prompt, model) {
   if (role().kind === "devin") return runDevin(prompt, model);
+  if (role().kind === "cursor") return runCursor(prompt, model);
   const r = role();
   const out = path.join(PRES, `${encodeURIComponent(ROLE)}.last.txt`);
   try { fs.rmSync(out, { force: true }); } catch {}
@@ -133,7 +159,7 @@ function runCodex(prompt, model) {
  * 只在「没拿到回复」时才当成额度用完（CLI 偶尔往 stderr 打一句 rate limit，但最后正常答了，不算）。
  */
 async function runWithFallback(prompt) {
-  const kind = role().kind === "devin" ? "Devin" : "Codex";
+  const kind = role().kind === "devin" ? "Devin" : role().kind === "cursor" ? "Cursor" : "Codex";
   const res = await runCodex(prompt);
   if (!isQuotaError(res.raw) || res.text) return res;
   const fb = role().fallback_model;
@@ -154,11 +180,11 @@ for (let round = 1; round <= 20; round++) {
   fs.writeFileSync(CUR, JSON.stringify({ line: last }));
   const sender = msgs[msgs.length - 1].from;
   const prompt = msgs.map((m) => `【${m.from} 的消息】${m.text}`).join("\n\n")
-    + `\n\n（你是团队里的 ${role().kind === "devin" ? "Devin" : "Codex"} 员工 ${ROLE}。你这一轮的最后一条回复会自动发回给 ${sender}，写短、写清做了什么。部署、花钱、对外操作一律不做，需要时在回复里说明。）`;
+    + `\n\n（你是团队里的 ${role().kind === "devin" ? "Devin" : role().kind === "cursor" ? "Cursor" : "Codex"} 员工 ${ROLE}。你这一轮的最后一条回复会自动发回给 ${sender}，写短、写清做了什么。部署、花钱、对外操作一律不做，需要时在回复里说明。）`;
   presence("working", { task: msgs[msgs.length - 1].text.slice(0, 80), since: Date.now() });
   log(`第 ${round} 轮，${msgs.length} 条消息，来自 ${[...new Set(msgs.map((m) => m.from))].join("、")}`);
   const { code, text } = await runWithFallback(prompt);
   log(`结束（退出码 ${code}）`);
-  reply(sender, text || `（${role().kind === "devin" ? "Devin" : "Codex"} 这一轮没有回复，退出码 ${code}，日志在 ${logFile}）`);
+  reply(sender, text || `（${role().kind === "devin" ? "Devin" : role().kind === "cursor" ? "Cursor" : "Codex"} 这一轮没有回复，退出码 ${code}，日志在 ${logFile}）`);
 }
 process.exit(0);

@@ -3,7 +3,7 @@
 // 收件箱 ~/agy-logs/inbox.jsonl、员工表 ~/.config/agy-team/roles.json，跟 agy-send / agy-reply / agy-agents 同一套数据
 // 环境变量：HUB_SIDE=master（主控，多出派活 / 停活）或 employee（默认）；HUB_ME=调用方名字（可选，不填就每次传 me）
 import { appendFileSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -109,7 +109,7 @@ const fmt = (m) => `[${m.time}] ${m.from} → ${m.to} · ${m.type}${m.status ? `
 const isDesktop = (role) => roles()[role]?.kind === "desktop";
 // 11-07：通用适配器。有桥的员工类型：desktop（反重力桌面端）、codex（Codex CLI）、tmux（任何跑在 tmux 里的终端 agent）
 const kindOf = (role) => roles()[role]?.kind;
-const BRIDGED = new Set(["desktop", "codex", "devin", "tmux"]);
+const BRIDGED = new Set(["desktop", "codex", "devin", "cursor", "tmux"]);
 const TMUX = toolPath("tmux", "TMUX_BIN"); // 环境变量 TMUX_BIN > ~/.config/agent-hub/config.json > 自动找
 const runAbs = (bin, args) => new Promise((resolve) => {
   const p = spawn(bin, args, { env: ENV, stdio: ["ignore", "pipe", "pipe"] });
@@ -120,11 +120,11 @@ const ADAPTERS = join(new URL(".", import.meta.url).pathname, "adapters");
 async function deliver(role, from, text) {
   const k = kindOf(role);
   if (k === "desktop") return deliverToDesktop(role, from, text);
-  if (k === "codex" || k === "devin") {
+  if (k === "codex" || k === "devin" || k === "cursor") {
     // 后台拉起一轮；已经在跑的话它自己会退出，消息留在收件箱，跑着的那轮结束后接着处理
     const p = spawn(process.execPath, [join(ADAPTERS, "codex-run.mjs"), role], { detached: true, stdio: "ignore", env: ENV });
     p.unref();
-    return `，${k === "devin" ? "Devin" : "Codex"} 已开跑这一轮（在跑的话排队，跑完接着处理），回复会自动发回`;
+    return `，${k === "devin" ? "Devin" : k === "cursor" ? "Cursor" : "Codex"} 已开跑这一轮（在跑的话排队，跑完接着处理），回复会自动发回`;
   }
   if (k === "tmux") {
     const target = roles()[role]?.tmux;
@@ -196,7 +196,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 11-08：「主控」就是调用方自己所属的那个 Claude Code 会话（master-a / master-b / master-c 各是各的）。
 // 找得到会话名就用真名（派活、发消息的 from 写它，员工回复按 to 推回那个会话）；找不到才写「主控」。
 const selfMaster = () => { try { return masterName(); } catch { return null; } };
+// 11-09：反重力命令行员工（agy-run 派的）调本工具时，模型会照着任务原文自称「3a」之类。本进程是 agy 直接拉起的，
+// 父进程命令行里有 --conversation，工作目录就是座位目录：据此在 cli-sessions.json 里认出「项目/员工」，强制用它当身份
+const cliSeat = (() => {
+  if (process.env.HUB_DIR) return null;   // 测试环境不认
+  try {
+    const args = execFileSync("ps", ["-o", "args=", "-p", String(process.ppid)], { encoding: "utf8" }).trim();
+    if (!/^(\S*\/)?agy\s/.test(args)) return null;
+    const conv = /--conversation\s+(\S+)/.exec(args)?.[1] || "";
+    const reg = JSON.parse(readFileSync(join(HOME, ".config", "agy-team", "cli-sessions.json"), "utf8"));
+    const cwd = process.cwd();
+    return Object.keys(reg).find((k) => conv && reg[k].conversation === conv) || Object.keys(reg).find((k) => reg[k].dir === cwd) || null;
+  } catch { return null; }
+})();
 const who = (args) => {
+  if (cliSeat) return cliSeat;
   const c = canon(args.me ?? process.env.HUB_ME ?? "");
   return c === MASTER ? (selfMaster() ?? MASTER) : c;
 };

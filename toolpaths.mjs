@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export const TOOLS = ["node", "tmux", "codex", "devin", "agy", "claude"];
+export const TOOLS = ["node", "tmux", "codex", "devin", "cursor-agent", "agy", "claude"];
 
 const homeDir = (home) => home || process.env.HOME || os.homedir();
 export const configPath = (home) => path.join(homeDir(home), ".config", "agent-hub", "config.json");

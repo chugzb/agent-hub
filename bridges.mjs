@@ -17,7 +17,7 @@ const kids = new Map();
 const log = (...a) => console.log(new Date().toISOString().slice(0, 19), ...a);
 
 const wanted = () => {
-  try { return Object.entries(JSON.parse(fs.readFileSync(ROLES, "utf8"))).filter(([, r]) => ["desktop", "codex", "devin", "tmux"].includes(r.kind)).map(([k]) => k); }
+  try { return Object.entries(JSON.parse(fs.readFileSync(ROLES, "utf8"))).filter(([, r]) => ["desktop", "codex", "devin", "cursor", "tmux"].includes(r.kind)).map(([k]) => k); }
   catch { return []; }
 };
 

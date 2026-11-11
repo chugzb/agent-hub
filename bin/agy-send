@@ -14,6 +14,9 @@ if [[ -z "$AGY_CLI" && $(field kind) == desktop ]]; then
   print -r -- "$req" | HUB_SIDE=master node ${0:A:h:h}/server.mjs | python3 -c "import sys,json;d=json.loads(sys.stdin.read());print(d['result']['content'][0]['text'])"
   exit 0
 fi
+# 11-09：命令行派活每单自动附交付前自检清单（AGY_NO_SELFCHECK=1 可关）
+SC=~/.config/agy-team/self-check.txt
+[[ -z "$AGY_NO_SELFCHECK" && -f $SC ]] && msg="$msg"$'\n\n'"$(cat $SC)"
 cwd=$(field cwd); conv=$(field conversation); model=${AGY_MODEL:-$(field model)}; log=$(field log)
 [[ -z "$cwd" || -z "$model" || -z "$log" ]] && { echo "$role 缺 cwd / model / log，先在 $CFG 里补上"; exit 1; }
 lock=~/agy-logs/running/$role.pid

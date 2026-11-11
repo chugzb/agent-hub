@@ -30,7 +30,7 @@ body{color:var(--ink);font-size:12.5px;-webkit-user-select:none;user-select:none
 .nm{font-weight:600;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none}
 .row.att .nm{color:var(--stuck)}
 .tool{color:#fff;border-radius:999px;padding:0 5px;font-size:10.5px;line-height:15px;font-weight:600;flex:none}
-.t-cc{background:#c96442}.t-agy{background:#3b6fd8}.t-dv{background:#13795b}.t-cx{background:#111827}.t-tm{background:#6b7280}
+.t-cc{background:#c96442}.t-agy{background:#3b6fd8}.t-agc{background:#7c4dce}.t-dv{background:#13795b}.t-cx{background:#111827}.t-cu{background:#2d2d2d}.t-tm{background:#6b7280}
 .do{flex:1;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
 .row.att .do{color:var(--stuck);opacity:.85}
 .hm{flex:none;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
@@ -44,15 +44,15 @@ body{color:var(--ink);font-size:12.5px;-webkit-user-select:none;user-select:none
 /* 跟 board.html 同一套判断：工具、模型 → 头像，stateOf 把「对话撑爆」算成卡住 */
 const $ = (id) => document.getElementById(id);
 const AV = new Set(["claude", "deepseek", "gemini", "devin", "codex", "kiro", "cursor"]);
-const TOOLS = { "Claude Code": "cc", "反重力": "agy", "Devin": "dv", "Codex": "cx", "终端": "tm" };
-const SHORT = { "Claude Code": "CC", "反重力": "反重力", "Devin": "Devin", "Codex": "Codex", "终端": "终端" };
+const TOOLS = { "Claude Code": "cc", "反重力": "agy", "反重力 CLI": "agc", "Devin": "dv", "Codex": "cx", "Cursor": "cu", "终端": "tm" };
+const SHORT = { "Claude Code": "CC", "反重力": "反重力", "反重力 CLI": "CLI", "Devin": "Devin", "Codex": "Codex", "Cursor": "Cursor", "终端": "终端" };
 const TOOL_SAY = { Bash: "在跑命令", Read: "在看文件", Grep: "在搜代码", Glob: "在找文件", Edit: "在改文件", MultiEdit: "在改文件", Write: "在写文件", NotebookEdit: "在改文件",
   WebFetch: "在看网页", WebSearch: "在搜网页", Task: "在派子任务", Agent: "在派子任务", TodoWrite: "在列待办", SendMessage: "在发消息" };
 
 function toolOf(a) {
   if (TOOLS[a.tool]) return a.tool;
   const k = String(a.kind || "");
-  return /^反重力/.test(k) ? "反重力" : /^Devin/.test(k) ? "Devin" : /^Codex/.test(k) ? "Codex" : /^终端/.test(k) ? "终端" : "Claude Code";
+  return /^反重力 CLI/.test(k) ? "反重力 CLI" : /^反重力/.test(k) ? "反重力" : /^Devin/.test(k) ? "Devin" : /^Codex/.test(k) ? "Codex" : /^Cursor/.test(k) ? "Cursor" : /^终端/.test(k) ? "终端" : "Claude Code";
 }
 function rawModel(a) {
   if (a.model) return a.model;
@@ -61,6 +61,7 @@ function rawModel(a) {
 }
 function avatarOf(a, tool, model) {
   const m = String(model || "").toLowerCase();
+  if (tool === "Cursor" || /composer|grok/.test(m)) return "cursor"; // 11-10：Cursor 员工用自己的头
   if (/claude|opus|sonnet|haiku/.test(m)) return "claude";
   if (/gpt|codex|\bo\d/.test(m)) return "codex";
   if (/gemini/.test(m)) return "gemini";

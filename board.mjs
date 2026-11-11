@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 员工看板：本机网页，只读，只监听 127.0.0.1。实时显示每个员工在干活 / 空闲 / 疑似卡住、在做什么、做了多久，以及员工之间的消息。
-// 数据：~/.claude/sessions/*.json + 对话记录（Claude Code 会话）、反重力桌面端本机接口、Codex 适配器的 presence、~/agy-logs/inbox.jsonl。
+// 数据：~/.claude/sessions/*.json + 对话记录（Claude Code 会话）、反重力桌面端本机接口、反重力命令行（cli-seats.mjs）、Codex 适配器的 presence、~/agy-logs/inbox.jsonl。
 // 界面思路借鉴 abtop-web-ui（卡片 + 状态点 + 时长）、agent-orchestrator（「需要你处理」置顶）、herdr（卡住判断从严）、repowire（消息时间线）。
 // 用法：node board.mjs [端口，默认 4646]
 import http from "node:http";
@@ -13,6 +13,7 @@ import {
 } from "./desk.mjs";
 import { nextReset } from "./health.mjs";
 import { demoPage, demoSnapshot } from "./demo-data.mjs";
+import { cliSeats } from "./cli-seats.mjs";
 
 
 if (process.platform === "win32" && process.env.BOARD_DEMO !== "1") {
@@ -207,6 +208,12 @@ async function employeeAgents() {
       // presence 写 state=waiting：桌面版把会话放开了、在等会话，不算歇着
       out.push({ name, avatar: "devin", kind: `Devin · ${r.model || ""}`, state: running ? "working" : p.state === "waiting" ? "waiting" : "idle", since: p.since ?? p.beat, lastMove: p.beat,
         doing: running ? clip(p.task, 90) : "", where: r.cwd?.replace(HOME, "~") });
+    } else if (r.kind === "cursor") {
+      const p = readJson(path.join(PRES, `${encodeURIComponent(name)}.json`), {});
+      const lock = readJson(path.join(PRES, `${encodeURIComponent(name)}.lock`));
+      const running = typeof lock === "number" ? alive(lock) : false;
+      out.push({ name, avatar: "cursor", kind: `Cursor · ${r.model || "composer-2.5"}`, state: running ? "working" : "idle", since: p.since ?? p.beat, lastMove: p.beat,
+        doing: running ? clip(p.task, 90) : "", where: r.cwd?.replace(HOME, "~") });
     } else if (r.kind === "tmux") {
       out.push({ name, avatar: r.avatar || "claude", kind: "终端 agent · tmux", state: "unknown", doing: `窗口 ${r.tmux}`, since: 0, lastMove: 0 });
     }
@@ -258,8 +265,10 @@ function messagesPage(n = 40, before = Infinity) {
 // tool：员工表写了 tool 就用，否则看 kind；model：员工表 brain → model → 从 kind 里取，Claude Code 会话取不到就写 Claude
 function toolOf(kind) {
   const k = String(kind || "");
+  if (/^反重力 CLI/.test(k)) return "反重力 CLI";
   if (/^反重力/.test(k)) return "反重力";
   if (/^Devin/.test(k)) return "Devin";
+  if (/^Cursor/.test(k)) return "Cursor";
   if (/^Codex/.test(k)) return "Codex";
   if (/^终端/.test(k)) return "终端";
   return "Claude Code"; // Claude Code 会话，包括跑在 Claude Code 里的 DeepSeek（claude-ds）
@@ -292,7 +301,7 @@ function subOf(name) {
 }
 function withTag(a, roles) {
   const r = roles[a.name] || {};
-  return { ...a, tool: r.tool || toolOf(a.kind), model: r.brain || r.model || modelFromKind(a.kind), group: r.group || "", health: roles[a.name] ? healthOf(a.name) : null };
+  return { ...a, tool: r.tool || toolOf(a.kind), model: r.brain || r.model || a.model || modelFromKind(a.kind), group: r.group || a.group || "", health: roles[a.name] ? healthOf(a.name) : null };
 }
 
 async function snapshot() {
@@ -300,7 +309,8 @@ async function snapshot() {
   const bridges = bridgePids();
   const roles = readJson(ROLES, {});
   const known = new Set(Object.values(roles).map((r) => r.session).filter(Boolean));
-  const agents = [...await employeeAgents(), ...claudeAgents(bridges), ...codexSessions(known)].map((a) => withTag(a, roles));
+  let cli = []; try { cli = cliSeats(); } catch (e) { console.error("命令行座位出错：", e.message); }
+  const agents = [...await employeeAgents(), ...cli, ...claudeAgents(bridges), ...codexSessions(known)].map((a) => withTag(a, roles));
   // 额度用完：health.mjs 记了 quota 且还没到恢复时间 → 单独一个「没额度」状态，不再当作出错挂在干活区；
   // 恢复时间已过就当它已经好了（额度报错是旧的、活多数也被别人接手了），显示成歇着，别再挂红
   const now = Date.now();
